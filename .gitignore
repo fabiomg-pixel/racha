@@ -1,0 +1,12 @@
+# OS
+.DS_Store
+
+# Supabase local (gerado por `supabase init`)
+.branches
+.temp
+supabase/.temp
+
+# Logs / env
+*.log
+.env
+.env.*
