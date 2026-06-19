@@ -215,11 +215,13 @@
       <option value="claude-sonnet-4-6">Sonnet 4.6</option>
     </select>
   </label>
-  <details style="margin-bottom:12px">
+  <details style="margin-bottom:10px">
     <summary class="small muted" style="cursor:pointer">Avançado: usar proxy (Supabase) no lugar da chave</summary>
     <p class="small muted" style="margin:8px 0 4px">Pra compartilhar com mais gente sem expor a chave. Deixe vazio pra usar a chave acima.</p>
     <input id="ocrUrl" placeholder="https://xxxx.supabase.co/functions/v1/ocr">
   </details>
+  <button class="btn-ghost btn-block" id="btnClearKey" style="margin-bottom:6px;color:var(--danger)">Apagar chave deste aparelho</button>
+  <p class="small muted" style="margin:0 0 12px">Dica: em aparelho compartilhado, apague a chave depois de dividir a conta. Use uma chave dedicada com limite de gasto.</p>
   <div class="row">
     <button class="btn-primary" id="btnSaveConfig" style="flex:1">Salvar</button>
     <button class="btn-ghost" id="btnCloseConfig">Fechar</button>
@@ -576,6 +578,10 @@ $("#discount").onchange=e=>{ state.discount=parseMoney(e.target.value); e.target
 $("#btnConfig").onclick=openConfig;
 $("#btnCloseConfig").onclick=()=> $("#configDlg").close();
 $("#btnSaveConfig").onclick=saveConfig;
+$("#btnClearKey").onclick=()=>{
+  if(!localStorage.getItem("racha.apiKey")){ toast("Nenhuma chave salva neste aparelho."); return; }
+  localStorage.removeItem("racha.apiKey"); $("#apiKey").value=""; toast("Chave apagada deste aparelho ✓");
+};
 $("#btnReset").onclick=()=>{ if(confirm("Recomeçar? Apaga itens e pessoas.")){ state={items:[],people:[],serviceRate:0.10,serviceOn:true,couvert:0,discount:0}; render(); } };
 
 /* init */
