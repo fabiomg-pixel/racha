@@ -30,16 +30,17 @@ python3 -m http.server 8000
 
 ## Deploy (GitHub Pages, igual ao Vereda)
 
+**Já está no ar:** https://fabiomg-pixel.github.io/racha/ · repo: https://github.com/fabiomg-pixel/racha
+
+Pra publicar uma atualização, basta empurrar pra `main`:
+
 ```bash
 cd ~/Documents/Claude/racha
-git init && git add -A && git commit -m "Racha v1"
-git branch -M main
-git remote add origin git@github.com:fabiomg-pixel/racha.git   # crie o repo antes
-git push -u origin main
-# Settings → Pages → Branch: main / root
+git add -A && git commit -m "ajuste"
+git push        # GitHub Pages republica sozinho em ~1 min
 ```
 
-> Ao mexer no app, **suba o número do cache** em `sw.js` (`racha-v1` → `racha-v2`) pra forçar atualização.
+> Ao mexer no app, **suba o número do cache** em `sw.js` (`racha-v2` → `racha-v3`...) pra forçar a atualização nos aparelhos já instalados.
 
 ## OCR por foto — duas formas
 
