@@ -1,5 +1,5 @@
 // Racha — service worker (cache versionado)
-const CACHE = "racha-v5";
+const CACHE = "racha-v6";
 const ASSETS = ["./", "./index.html", "./manifest.json", "./icon.svg"];
 
 self.addEventListener("install", e => {

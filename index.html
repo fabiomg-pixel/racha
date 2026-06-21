@@ -123,6 +123,15 @@
   .toast{position:fixed;bottom:160px;left:50%;transform:translateX(-50%);background:var(--ink);color:var(--bg);
     padding:10px 16px;border-radius:999px;font-size:14px;font-weight:600;z-index:50;opacity:0;transition:.2s;pointer-events:none}
   .toast.show{opacity:1}
+  .cam-overlay{position:fixed;inset:0;z-index:100;background:#000;display:flex}
+  .cam-overlay video{width:100%;height:100%;object-fit:cover;background:#000}
+  .cam-hint{position:absolute;top:max(16px,env(safe-area-inset-top));left:16px;right:16px;text-align:center;
+    color:#fff;font-weight:600;font-size:14px;text-shadow:0 1px 4px rgba(0,0,0,.7)}
+  .cam-bar{position:absolute;bottom:0;left:0;right:0;display:flex;align-items:center;justify-content:space-between;
+    padding:22px 32px max(22px,env(safe-area-inset-bottom))}
+  .cam-side{background:rgba(255,255,255,.22);color:#fff;width:50px;height:50px;border-radius:50%;font-size:20px;display:grid;place-items:center;padding:0}
+  .cam-shutter{width:74px;height:74px;border-radius:50%;background:#fff;border:5px solid rgba(255,255,255,.45);box-shadow:0 0 0 3px rgba(0,0,0,.35);padding:0}
+  .cam-shutter:active{transform:scale(.94)}
 </style>
 </head>
 <body>
@@ -207,6 +216,17 @@
       <div class="sub" id="grandSub">subtotal R$ 0,00 + serviço R$ 0,00</div>
     </div>
     <button class="btn-primary" id="btnShare">Compartilhar</button>
+  </div>
+</div>
+
+<!-- CÂMERA -->
+<div id="camOverlay" class="cam-overlay hide">
+  <video id="camVideo" playsinline autoplay muted></video>
+  <div class="cam-hint">Enquadre a conta inteira e toque no botão para fotografar</div>
+  <div class="cam-bar">
+    <button id="camCancel" class="cam-side" title="Cancelar">✕</button>
+    <button id="camShot" class="cam-shutter" aria-label="Fotografar"></button>
+    <button id="camFlip" class="cam-side" title="Virar câmera">⟲</button>
   </div>
 </div>
 
@@ -499,13 +519,21 @@ function applyBillMeta(meta){
 }
 
 /* foto -> OCR: chave Anthropic direta (padrão) ou proxy Supabase (avançado) */
-async function readPhoto(file){
+function ocrConfigured(){ return localStorage.getItem("racha.ocrUrl") || localStorage.getItem("racha.apiKey"); }
+
+async function readPhoto(file){               // veio de um <input type=file> (galeria/arquivo)
+  if(!ocrConfigured()){ toast("Informe a chave da API em ⚙"); openConfig(); return; }
+  let img;
+  try{ img=await compress(file); }catch(e){ toast("Não consegui ler a imagem."); return; }
+  await ocrAndApply(img.data, img.media);
+}
+
+async function ocrAndApply(data, media){      // recebe base64 já pronto (galeria OU câmera)
+  if(!ocrConfigured()){ toast("Informe a chave da API em ⚙"); openConfig(); return; }
   const url=localStorage.getItem("racha.ocrUrl");
   const key=localStorage.getItem("racha.apiKey");
-  if(!url && !key){ toast("Informe a chave da API em ⚙"); openConfig(); return; }
   const dlg=loadingDialog("Lendo a foto…");
   try{
-    const {data,media}=await compress(file);
     let json;
     if(url){
       let res;
@@ -526,6 +554,45 @@ async function readPhoto(file){
     render(); toast(`${items.length} ${items.length>1?"itens lidos":"item lido"} da foto ✓`);
   }catch(e){ toast(ocrError(e), 6000); }
   finally{ dlg.close(); dlg.remove(); }
+}
+
+/* câmera in-app via getUserMedia (não depende do capture, que falha em vários Androids) */
+let camStream=null, camFacing="environment";
+async function openCamera(){
+  if(!ocrConfigured()){ toast("Informe a chave da API em ⚙"); openConfig(); return; }
+  if(!navigator.mediaDevices?.getUserMedia){ $("#camInput").click(); return; }   // sem API -> input arquivo
+  try{ camStream=await grabCam(camFacing); }
+  catch(e){ console.warn("[Racha cam]", e);
+    toast(/denied|permission/i.test(String(e))? "Permita a câmera no navegador." : "Câmera indisponível — abrindo arquivos.");
+    $("#camInput").click(); return; }
+  const v=$("#camVideo"); v.srcObject=camStream; v.muted=true; v.playsInline=true;
+  try{ await v.play(); }catch(_){}
+  $("#camOverlay").classList.remove("hide"); document.body.style.overflow="hidden";
+}
+async function grabCam(facing){
+  try{ return await navigator.mediaDevices.getUserMedia({video:{facingMode:{ideal:facing}},audio:false}); }
+  catch(_){ return await navigator.mediaDevices.getUserMedia({video:true,audio:false}); }  // alguns aparelhos recusam facingMode
+}
+function closeCamera(){
+  if(camStream){ camStream.getTracks().forEach(t=>t.stop()); camStream=null; }
+  $("#camOverlay").classList.add("hide"); $("#camVideo").srcObject=null; document.body.style.overflow="";
+}
+async function flipCamera(){
+  camFacing = camFacing==="environment" ? "user" : "environment";
+  if(camStream) camStream.getTracks().forEach(t=>t.stop());
+  try{ camStream=await grabCam(camFacing); $("#camVideo").srcObject=camStream; await $("#camVideo").play(); }
+  catch(e){ toast("Não consegui trocar de câmera."); }
+}
+async function shootCamera(){
+  const v=$("#camVideo"); const w=v.videoWidth, h=v.videoHeight;
+  if(!w||!h){ toast("Câmera ainda carregando…"); return; }
+  const max=1600; let cw=w, ch=h;
+  if(Math.max(w,h)>max){ const s=max/Math.max(w,h); cw=Math.round(w*s); ch=Math.round(h*s); }
+  const cv=document.createElement("canvas"); cv.width=cw; cv.height=ch;
+  cv.getContext("2d").drawImage(v,0,0,cw,ch);
+  const data=cv.toDataURL("image/jpeg",0.82).split(",")[1];
+  closeCamera();
+  await ocrAndApply(data, "image/jpeg");
 }
 
 // chama o Claude vision direto do navegador (chave fica só neste aparelho)
@@ -627,11 +694,14 @@ $("#btnManual").onclick=()=> addItem();
 $("#btnText").onclick=()=>{ $("#textArea").classList.toggle("hide"); $("#billText").focus(); };
 $("#btnTextCancel").onclick=()=> $("#textArea").classList.add("hide");
 $("#btnParse").onclick=()=>{ applyParsed(parseBill($("#billText").value)); $("#billText").value=""; $("#textArea").classList.add("hide"); };
-$("#btnCamera").onclick=()=> $("#camInput").click();
+$("#btnCamera").onclick=openCamera;        // câmera in-app (getUserMedia); cai pro #camInput se falhar
 $("#btnGallery").onclick=()=> $("#galInput").click();
 const onPick=e=>{ const f=e.target.files[0]; if(f) readPhoto(f); e.target.value=""; };
 $("#camInput").onchange=onPick;
 $("#galInput").onchange=onPick;
+$("#camCancel").onclick=closeCamera;
+$("#camShot").onclick=shootCamera;
+$("#camFlip").onclick=flipCamera;
 $("#btnShare").onclick=shareText;
 
 $("#serviceRate").onchange=e=>{ state.serviceRate=(parseFloat(e.target.value)||0)/100; render(); };
