@@ -12,14 +12,14 @@ const cors = {
 };
 
 const PROMPT = `Você recebe a FOTO de uma conta/cupom de restaurante ou bar no Brasil.
-Extraia os itens de consumo e responda APENAS com JSON válido, sem texto extra, neste formato:
-{"items":[{"name":"nome do item","qty":1,"unitPrice":0.00}],"serviceIncluded":false}
+Extraia os dados e responda APENAS com JSON válido, sem texto extra, neste formato:
+{"items":[{"name":"nome do item","qty":1,"unitPrice":0.00}],"subtotal":0.00,"service":{"rate":10,"amount":0.00},"total":0.00}
 Regras:
-- unitPrice é o preço UNITÁRIO em reais (número, ponto decimal). Se a linha mostra só o total da linha, divida pelo qty.
-- qty é a quantidade (inteiro). Quando não houver, use 1.
-- NÃO inclua linhas de total, subtotal, troco, taxa de serviço, couvert, CNPJ ou impostos como itens.
-- Se houver taxa de serviço (10%) na conta, marque "serviceIncluded": true.
-- Não invente itens que não estão legíveis.`;
+- items: cada item de consumo. unitPrice é o preço UNITÁRIO em reais (número, ponto decimal); se a linha mostra só o total da linha, divida pelo qty. qty é inteiro (1 se não houver). NÃO inclua linhas de total, subtotal, serviço, couvert, CNPJ ou impostos como itens. Não invente itens ilegíveis. Cuidado para NÃO repetir o mesmo item duas vezes.
+- subtotal: a soma do consumo ANTES da taxa de serviço, exatamente como impressa; se não houver, use null.
+- service: a taxa de serviço/gorjeta SE existir na conta — "rate" é o percentual (ex.: 10) e "amount" o valor em reais; se a conta não cobra serviço, use null.
+- total: o total final impresso na conta; se não houver, use null.
+- Use null quando o campo não estiver visível. Não calcule nada que não esteja impresso.`;
 
 Deno.serve(async (req) => {
   if (req.method === "OPTIONS") return new Response("ok", { headers: cors });
@@ -55,7 +55,12 @@ Deno.serve(async (req) => {
     const text = (data.content?.[0]?.text ?? "").trim();
     const m = text.match(/\{[\s\S]*\}/);            // tira cercas de código se vierem
     const parsed = m ? JSON.parse(m[0]) : { items: [] };
-    return json({ items: parsed.items ?? [], serviceIncluded: !!parsed.serviceIncluded });
+    return json({
+      items: parsed.items ?? [],
+      subtotal: parsed.subtotal ?? null,
+      service: parsed.service ?? null,
+      total: parsed.total ?? null,
+    });
   } catch (e) {
     return json({ error: String(e) }, 500);
   }

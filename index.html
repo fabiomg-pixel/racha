@@ -110,6 +110,10 @@
   .hide{display:none!important}
   .center{text-align:center}
   .empty{text-align:center;color:var(--muted);padding:14px 0;font-size:14px}
+  .check{border-radius:12px;padding:10px 12px;margin:0 0 12px;font-size:13px;font-weight:600;line-height:1.45}
+  .check.ok{background:rgba(15,157,88,.14);color:var(--brand-ink)}
+  .check.warn{background:rgba(194,65,12,.14);color:var(--warn)}
+  .check a{color:inherit;text-decoration:underline;font-weight:800;cursor:pointer}
   dialog{border:none;border-radius:18px;padding:0;max-width:420px;width:92%;background:var(--card);color:var(--ink);box-shadow:var(--shadow)}
   dialog::backdrop{background:rgba(0,0,0,.45)}
   .dlg-body{padding:18px}
@@ -163,6 +167,7 @@
   <!-- ITENS -->
   <section class="card">
     <h2>Itens <span class="count" id="itemsCount">0</span></h2>
+    <div id="checkBanner" class="check hide"></div>
     <div id="itemsList"></div>
     <button class="btn-ghost btn-block" id="btnAddItem" style="margin-top:4px">+ Adicionar item</button>
   </section>
@@ -240,16 +245,16 @@ const PALETTE = ["#0f9d58","#1565c0","#e65100","#8e24aa","#c2185b","#00897b","#5
 const fmt = n => "R$ "+(Math.round(n*100)/100).toLocaleString("pt-BR",{minimumFractionDigits:2,maximumFractionDigits:2});
 const DEFAULT_MODEL = "claude-haiku-4-5-20251001";
 const OCR_PROMPT = `Você recebe a FOTO de uma conta/cupom de restaurante ou bar no Brasil.
-Extraia os itens de consumo e responda APENAS com JSON válido, sem texto extra, neste formato:
-{"items":[{"name":"nome do item","qty":1,"unitPrice":0.00}],"serviceIncluded":false}
+Extraia os dados e responda APENAS com JSON válido, sem texto extra, neste formato:
+{"items":[{"name":"nome do item","qty":1,"unitPrice":0.00}],"subtotal":0.00,"service":{"rate":10,"amount":0.00},"total":0.00}
 Regras:
-- unitPrice é o preço UNITÁRIO em reais (número, ponto decimal). Se a linha mostra só o total da linha, divida pelo qty.
-- qty é a quantidade (inteiro). Quando não houver, use 1.
-- NÃO inclua linhas de total, subtotal, troco, taxa de serviço, couvert, CNPJ ou impostos como itens.
-- Se houver taxa de serviço (10%) na conta, marque "serviceIncluded": true.
-- Não invente itens que não estão legíveis.`;
+- items: cada item de consumo. unitPrice é o preço UNITÁRIO em reais (número, ponto decimal); se a linha mostra só o total da linha, divida pelo qty. qty é inteiro (1 se não houver). NÃO inclua linhas de total, subtotal, serviço, couvert, CNPJ ou impostos como itens. Não invente itens ilegíveis. Cuidado para NÃO repetir o mesmo item duas vezes.
+- subtotal: a soma do consumo ANTES da taxa de serviço, exatamente como impressa; se não houver, use null.
+- service: a taxa de serviço/gorjeta SE existir na conta — "rate" é o percentual (ex.: 10) e "amount" o valor em reais; se a conta não cobra serviço, use null.
+- total: o total final impresso na conta; se não houver, use null.
+- Use null quando o campo não estiver visível. Não calcule nada que não esteja impresso.`;
 
-let state = load() || { items:[], people:[], serviceRate:0.10, serviceOn:true, couvert:0, discount:0 };
+let state = load() || { items:[], people:[], serviceRate:0.10, serviceOn:true, couvert:0, discount:0, billSubtotal:null, billTotal:null };
 let uid = Math.max(0, ...state.items.map(i=>i.id||0), ...state.people.map(p=>p.id||0));
 const nid = ()=> ++uid;
 
@@ -387,6 +392,7 @@ function renderItems(){
 
 function renderResult(){
   const r = compute();
+  renderCheck();
   $("#grandTotal").textContent = fmt(r.grand);
   $("#grandSub").textContent = `subtotal ${fmt(r.subtotalAll)} · serviço ${fmt(r.service)}`+
     (r.couvert?` · couvert ${fmt(r.couvert)}`:"")+(r.discount?` · −${fmt(r.discount)}`:"");
@@ -409,6 +415,28 @@ function renderResult(){
   }
 }
 
+// conferência: compara o que o app calcula com o que está impresso na conta
+function renderCheck(){
+  const el=$("#checkBanner"); if(!el) return;
+  const r=compute();
+  let ref=null, actual=0, base="";
+  if(state.billSubtotal>0){ ref=state.billSubtotal; actual=r.subtotalAll; base="Os itens somam"; }
+  else if(state.billTotal>0){ ref=state.billTotal; actual=r.grand; base="O total calculado é"; }
+  if(ref==null){ el.classList.add("hide"); el.innerHTML=""; return; }
+  el.classList.remove("hide");
+  const diff=Math.round((actual-ref)*100)/100;
+  if(Math.abs(diff)<=0.05){
+    el.className="check ok";
+    el.innerHTML=`✓ Confere com a conta (${fmt(ref)}).`;
+  } else {
+    const hint = diff>0 ? "a mais — talvez um item repetido" : "a menos — talvez falte um item";
+    el.className="check warn";
+    el.innerHTML=`⚠ ${base} ${fmt(actual)}, mas a conta diz ${fmt(ref)} — diferença de ${fmt(Math.abs(diff))} ${hint}. Revise os itens. <a id="dismissCheck">ignorar</a>`;
+    const d=el.querySelector("#dismissCheck");
+    if(d) d.onclick=()=>{ state.billSubtotal=null; state.billTotal=null; render(); };
+  }
+}
+
 const esc = s => String(s==null?"":s).replace(/[&<>"]/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;"}[c]));
 const initial = s => (String(s||"?").trim()[0]||"?").toUpperCase();
 
@@ -424,33 +452,50 @@ function addItem(name="",qty=1,price=0){
 
 /* parser de texto da conta */
 function parseBill(text){
-  const skip=/(^|\s)(total|subtotal|sub-total|troco|cnpj|cpf|mesa|gar[çc]om|atend|valor a pagar|acr[ée]scimo)/i;
-  let serviceFound=false;
-  const found=[];
+  const found=[]; let total=null, subtotal=null, service=null;
   text.split(/\r?\n/).forEach(line=>{
     const raw=line.trim(); if(!raw) return;
-    if(/servi[çc]o|gorjeta|10\s*%/i.test(raw) && !/\d+x/i.test(raw)){ serviceFound=true; return; }
-    if(skip.test(raw)) return;
     const m=raw.match(/(\d{1,3}(?:\.\d{3})*,\d{2}|\d+,\d{2}|\d+\.\d{2})\s*$/);
-    if(!m) return;
-    const price=parseMoney(m[1]);
-    if(price<=0) return;
+    const val=m? parseMoney(m[1]) : null;
+    const low=raw.toLowerCase();
+    if(/servi[çc]o|gorjeta/.test(low) && !/\d+\s*x/i.test(raw)){
+      const pct=raw.match(/(\d{1,2})\s*%/);
+      service={ rate: pct?parseInt(pct[1]):null, amount: (val&&val>0)?val:null };
+      return;
+    }
+    if(/sub[\s-]?total/.test(low)){ if(val>0) subtotal=val; return; }
+    if(/^total|valor a pagar|total a pagar|total geral/.test(low)){ if(val>0) total=val; return; }
+    if(/troco|cnpj|cpf|mesa|gar[çc]om|atend|acr[ée]scimo|desconto|couvert/.test(low)) return;
+    if(!(val>0)) return;
     let rest=raw.slice(0,m.index).trim().replace(/[\.\-–—:\s]+$/,"");
     let qty=1;
     const q=rest.match(/^(\d{1,3})\s*(x|un|und|unid|pç|pc|\b)\s+/i);
     if(q && parseInt(q[1])>0){ qty=parseInt(q[1]); rest=rest.slice(q[0].length).trim(); }
     rest=rest.replace(/^[xX]\s*/,"").replace(/\s{2,}/g," ").trim();
     if(!rest) rest="item";
-    found.push({name:rest,qty,price});
+    found.push({name:rest,qty,price:val});
   });
-  return {items:found, serviceFound};
+  return {items:found, total, subtotal, service};
 }
 
 function applyParsed(parsed){
   if(!parsed.items.length){ toast("Não achei itens. Tente o modo manual."); return; }
   parsed.items.forEach(p=> state.items.push({id:nid(),name:p.name,qty:p.qty,price:p.price,assigned:state.people.map(x=>x.id)}));
-  if(parsed.serviceFound) state.serviceOn=true;
+  applyBillMeta(parsed);
   render(); toast(`${parsed.items.length} ${parsed.items.length>1?"itens lidos":"item lido"} ✓`);
+}
+
+// guarda subtotal/total da conta e puxa a taxa de serviço discriminada (chamar DEPOIS de inserir os itens)
+function applyBillMeta(meta){
+  if(!meta) return;
+  if(meta.subtotal>0) state.billSubtotal = meta.subtotal;   // só atualiza a referência se a conta trouxe o valor
+  if(meta.total>0)    state.billTotal    = meta.total;
+  if(meta.service){
+    state.serviceOn = true;
+    const itemsSub = state.items.reduce((s,it)=> s+(Number(it.qty)||0)*(Number(it.price)||0), 0);
+    if(meta.service.rate>0) state.serviceRate = meta.service.rate/100;
+    else if(meta.service.amount>0 && itemsSub>0) state.serviceRate = meta.service.amount/itemsSub;
+  } else if(meta.serviceIncluded){ state.serviceOn = true; }   // compat formato antigo
 }
 
 /* foto -> OCR: chave Anthropic direta (padrão) ou proxy Supabase (avançado) */
@@ -477,7 +522,7 @@ async function readPhoto(file){
     if(!items.length) throw new Error("vazio");
     items.forEach(it=> state.items.push({id:nid(),name:it.name||"item",
       qty:Number(it.qty)||1, price:parseMoney(it.unitPrice ?? it.price ?? 0), assigned:state.people.map(p=>p.id)}));
-    if(json.serviceIncluded) state.serviceOn=true;
+    applyBillMeta(json);
     render(); toast(`${items.length} ${items.length>1?"itens lidos":"item lido"} da foto ✓`);
   }catch(e){ toast(ocrError(e), 6000); }
   finally{ dlg.close(); dlg.remove(); }
@@ -601,7 +646,7 @@ $("#btnClearKey").onclick=()=>{
   if(!localStorage.getItem("racha.apiKey")){ toast("Nenhuma chave salva neste aparelho."); return; }
   localStorage.removeItem("racha.apiKey"); $("#apiKey").value=""; toast("Chave apagada deste aparelho ✓");
 };
-$("#btnReset").onclick=()=>{ if(confirm("Recomeçar? Apaga itens e pessoas.")){ state={items:[],people:[],serviceRate:0.10,serviceOn:true,couvert:0,discount:0}; render(); } };
+$("#btnReset").onclick=()=>{ if(confirm("Recomeçar? Apaga itens e pessoas.")){ state={items:[],people:[],serviceRate:0.10,serviceOn:true,couvert:0,discount:0,billSubtotal:null,billTotal:null}; render(); } };
 
 /* init */
 if(state.couvert) $("#couvert").value=state.couvert.toLocaleString('pt-BR',{minimumFractionDigits:2});
