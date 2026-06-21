@@ -45,7 +45,7 @@
     margin:0 0 12px;font-weight:700;display:flex;align-items:center;gap:8px}
   .card h2 .count{background:var(--brand-soft);color:var(--brand-ink);border-radius:999px;
     padding:1px 9px;font-size:12px;letter-spacing:0;text-transform:none}
-  .entry{display:grid;grid-template-columns:1fr 1fr 1fr;gap:8px}
+  .entry{display:grid;grid-template-columns:1fr 1fr;gap:8px}
   .entry button{flex-direction:column;gap:6px;padding:14px 6px;font-size:13px;height:auto}
   .entry button .em{font-size:22px}
   button{font-family:inherit;font-size:15px;font-weight:600;cursor:pointer;border:none;
@@ -134,11 +134,13 @@
   <section class="card" id="entryCard">
     <h2>Comece a conta</h2>
     <div class="entry">
-      <button class="btn-soft" id="btnPhoto"><span class="em">📷</span>Foto</button>
+      <button class="btn-soft" id="btnCamera"><span class="em">📷</span>Câmera</button>
+      <button class="btn-soft" id="btnGallery"><span class="em">🖼️</span>Galeria</button>
       <button class="btn-soft" id="btnText"><span class="em">📝</span>Colar texto</button>
       <button class="btn-soft" id="btnManual"><span class="em">✏️</span>Manual</button>
     </div>
-    <input type="file" id="fileInput" accept="image/*" capture="environment" class="hide">
+    <input type="file" id="camInput" accept="image/*" capture="environment" class="hide">
+    <input type="file" id="galInput" accept="image/*" class="hide">
     <div id="textArea" class="hide" style="margin-top:12px">
       <textarea id="billText" placeholder="Cole aqui o texto da conta, uma linha por item. Ex.:&#10;2x Chopp        25,80&#10;Porção de fritas  38,00&#10;Picanha          92,90"></textarea>
       <div class="row" style="margin-top:8px">
@@ -461,9 +463,12 @@ async function readPhoto(file){
     const {data,media}=await compress(file);
     let json;
     if(url){
-      const res=await fetch(url,{method:"POST",headers:{"Content-Type":"application/json"},
-        body:JSON.stringify({image:data,mediaType:media})});
-      if(!res.ok) throw new Error("HTTP "+res.status);
+      let res;
+      try{ res=await fetch(url,{method:"POST",headers:{"Content-Type":"application/json"},
+        body:JSON.stringify({image:data,mediaType:media})}); }
+      catch(err){ throw new Error("rede: "+(err&&err.message||err)); }
+      if(!res.ok){ let detail=""; try{ detail=(await res.json())?.error||""; }catch(_){}
+        throw new Error("HTTP "+res.status+(detail?(": "+detail):"")); }
       json=await res.json();
     } else {
       json=await directOCR(data,media,key);
@@ -474,38 +479,49 @@ async function readPhoto(file){
       qty:Number(it.qty)||1, price:parseMoney(it.unitPrice ?? it.price ?? 0), assigned:state.people.map(p=>p.id)}));
     if(json.serviceIncluded) state.serviceOn=true;
     render(); toast(`${items.length} ${items.length>1?"itens lidos":"item lido"} da foto ✓`);
-  }catch(e){ toast(ocrError(e)); }
+  }catch(e){ toast(ocrError(e), 6000); }
   finally{ dlg.close(); dlg.remove(); }
 }
 
 // chama o Claude vision direto do navegador (chave fica só neste aparelho)
 async function directOCR(image, media, key){
   const model=localStorage.getItem("racha.ocrModel")||DEFAULT_MODEL;
-  const res=await fetch("https://api.anthropic.com/v1/messages",{
-    method:"POST",
-    headers:{
-      "x-api-key":key,
-      "anthropic-version":"2023-06-01",
-      "anthropic-dangerous-direct-browser-access":"true",
-      "content-type":"application/json"
-    },
-    body:JSON.stringify({ model, max_tokens:2000, messages:[{role:"user",content:[
-      {type:"image",source:{type:"base64",media_type:media,data:image}},
-      {type:"text",text:OCR_PROMPT}
-    ]}]})
-  });
-  if(res.status===401) throw new Error("auth");
-  if(!res.ok) throw new Error("HTTP "+res.status);
+  let res;
+  try{
+    res=await fetch("https://api.anthropic.com/v1/messages",{
+      method:"POST",
+      headers:{
+        "x-api-key":key,
+        "anthropic-version":"2023-06-01",
+        "anthropic-dangerous-direct-browser-access":"true",
+        "content-type":"application/json"
+      },
+      body:JSON.stringify({ model, max_tokens:2000, messages:[{role:"user",content:[
+        {type:"image",source:{type:"base64",media_type:media,data:image}},
+        {type:"text",text:OCR_PROMPT}
+      ]}]})
+    });
+  }catch(err){ throw new Error("rede: "+(err&&err.message||err)); }   // CORS/offline lança TypeError
+  if(!res.ok){
+    let detail=""; try{ detail=(await res.json())?.error?.message||""; }catch(_){}
+    throw new Error("HTTP "+res.status+(detail?(": "+detail):""));
+  }
   const d=await res.json();
   const text=(d.content?.[0]?.text||"").trim();
   const m=text.match(/\{[\s\S]*\}/);
-  return m? JSON.parse(m[0]) : {items:[]};
+  if(!m) throw new Error("vazio");
+  return JSON.parse(m[0]);
 }
 function ocrError(e){
   const s=String(e&&e.message||e);
-  if(s.includes("auth")) return "Chave da API inválida. Confira em ⚙.";
-  if(s.includes("vazio")) return "Não consegui ler itens. Tente outra foto ou use texto/manual.";
-  return "Falha ao ler a foto. Use texto/manual.";
+  console.error("[Racha OCR]", e);   // detalhe completo fica no console
+  if(/401|403|authentication|invalid x-api-key|permission/i.test(s)) return "Chave inválida ou sem permissão. Confira em ⚙.";
+  if(/credit|billing|balance|payment|quota|insufficient/i.test(s)) return "Sem créditos na API Anthropic. Adicione créditos no console — é cobrança separada do Claude Code.";
+  if(/429|rate.?limit|overloaded|529/i.test(s)) return "API ocupada ou limite atingido. Tente de novo em instantes.";
+  if(/404|not.?found|model/i.test(s)) return "Modelo indisponível pra essa conta. Tente o outro modelo em ⚙.";
+  if(/^rede:|failed to fetch|networkerror|load failed/i.test(s)) return "Não conectou na API (rede ou CORS). Detalhe no console; se persistir, use o proxy.";
+  if(/vazio/.test(s)) return "Não li itens nessa foto. Tente uma foto mais nítida ou use texto/manual.";
+  return "Falha ao ler a foto — "+s;
 }
 
 function compress(file){
@@ -538,8 +554,8 @@ function shareText(){
 
 /* ---------- UI helpers ---------- */
 let toastT;
-function toast(msg){ const el=$("#toast"); el.textContent=msg; el.classList.add("show");
-  clearTimeout(toastT); toastT=setTimeout(()=>el.classList.remove("show"),2200); }
+function toast(msg, ms){ const el=$("#toast"); el.textContent=msg; el.classList.add("show");
+  clearTimeout(toastT); toastT=setTimeout(()=>el.classList.remove("show"), ms||2200); }
 function loadingDialog(msg){
   const d=document.createElement("dialog");
   d.innerHTML=`<div class="dlg-body center"><div class="spin" style="margin:6px auto 12px;border-color:rgba(15,157,88,.25);border-top-color:var(--brand)"></div>${esc(msg)}</div>`;
@@ -566,8 +582,11 @@ $("#btnManual").onclick=()=> addItem();
 $("#btnText").onclick=()=>{ $("#textArea").classList.toggle("hide"); $("#billText").focus(); };
 $("#btnTextCancel").onclick=()=> $("#textArea").classList.add("hide");
 $("#btnParse").onclick=()=>{ applyParsed(parseBill($("#billText").value)); $("#billText").value=""; $("#textArea").classList.add("hide"); };
-$("#btnPhoto").onclick=()=> $("#fileInput").click();
-$("#fileInput").onchange=e=>{ const f=e.target.files[0]; if(f) readPhoto(f); e.target.value=""; };
+$("#btnCamera").onclick=()=> $("#camInput").click();
+$("#btnGallery").onclick=()=> $("#galInput").click();
+const onPick=e=>{ const f=e.target.files[0]; if(f) readPhoto(f); e.target.value=""; };
+$("#camInput").onchange=onPick;
+$("#galInput").onchange=onPick;
 $("#btnShare").onclick=shareText;
 
 $("#serviceRate").onchange=e=>{ state.serviceRate=(parseFloat(e.target.value)||0)/100; render(); };
