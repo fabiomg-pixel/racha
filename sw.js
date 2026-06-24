@@ -1,9 +1,14 @@
-// Racha — service worker (cache versionado)
-const CACHE = "racha-v7";
-const ASSETS = ["./", "./index.html", "./manifest.json", "./icon.svg"];
+// Racha — service worker (cache versionado). App único, duas abas.
+// Online-first pro HTML; cacheia o shell + módulos locais. Supabase/CDN/Anthropic passam direto.
+const CACHE = "racha-v8";
+const ASSETS = [
+  "./", "./index.html", "./manifest.json", "./icon.svg",
+  "./js/app.js", "./js/db.js", "./js/ocr.js",
+  "./js/split.js", "./js/ledger.js", "./js/pix.js", "./js/parse.js", "./js/money.js",
+];
 
 self.addEventListener("install", e => {
-  e.waitUntil(caches.open(CACHE).then(c => c.addAll(ASSETS)).then(() => self.skipWaiting()));
+  e.waitUntil(caches.open(CACHE).then(c => c.addAll(ASSETS).catch(()=>{})).then(() => self.skipWaiting()));
 });
 
 self.addEventListener("activate", e => {
@@ -15,11 +20,9 @@ self.addEventListener("activate", e => {
 
 self.addEventListener("fetch", e => {
   const req = e.request;
-  if (req.method !== "GET") return;                  // nunca cacheia POST (OCR)
+  if (req.method !== "GET") return;                  // nunca cacheia POST (OCR/RPC/auth)
   const url = new URL(req.url);
-  if (url.origin !== location.origin) return;        // deixa a função de OCR passar direto pra rede
-  if (url.pathname.includes("/grupos/")) return;     // o app de grupos tem o próprio SW — não interfere
-  // network-first para o HTML, cache-first para o resto
+  if (url.origin !== location.origin) return;        // Supabase / esm.sh / Anthropic passam direto pra rede
   if (req.mode === "navigate") {
     e.respondWith(fetch(req).catch(() => caches.match("./index.html")));
     return;

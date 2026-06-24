@@ -1,10 +1,10 @@
 // Testes dos módulos puros — `node test/run.mjs`. Sem dependências.
 import assert from "node:assert/strict";
-import { computeShares } from "../grupos/js/split.js";
-import { simplifyDebts, directDebts } from "../grupos/js/ledger.js";
-import { buildPixPayload, validatePix, crc16 } from "../grupos/js/pix.js";
-import { parseBill } from "../grupos/js/parse.js";
-import { parseMoney } from "../grupos/js/money.js";
+import { computeShares } from "../js/split.js";
+import { simplifyDebts, directDebts } from "../js/ledger.js";
+import { buildPixPayload, validatePix, crc16 } from "../js/pix.js";
+import { parseBill } from "../js/parse.js";
+import { parseMoney } from "../js/money.js";
 
 let pass = 0;
 const ok = (name, fn) => { fn(); pass++; console.log("  ok —", name); };

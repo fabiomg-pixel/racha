@@ -1,729 +1,136 @@
-<!DOCTYPE html>
+<!doctype html>
 <html lang="pt-BR">
 <head>
-<meta charset="UTF-8">
+<meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
-<meta name="theme-color" content="#0f9d58">
-<title>Racha — divida a conta</title>
-<link rel="manifest" href="manifest.json">
-<link rel="icon" href="icon.svg" type="image/svg+xml">
-<link rel="apple-touch-icon" href="icon.svg">
+<meta name="theme-color" content="#0f7a52">
+<title>Racha</title>
+<link rel="manifest" href="./manifest.json">
+<link rel="icon" href="./icon.svg">
 <style>
   :root{
-    --bg:#f4f6f5; --card:#ffffff; --ink:#10221b; --muted:#5d706a;
-    --line:#e3e9e6; --brand:#0f9d58; --brand-ink:#0a6e3d; --brand-soft:#e6f6ee;
-    --warn:#c2410c; --danger:#dc2626; --shadow:0 1px 3px rgba(16,34,27,.08),0 8px 24px rgba(16,34,27,.06);
-    --r:16px;
+    --bg:#f6f7f5; --card:#fff; --ink:#16201b; --mut:#6b7a72; --line:#e4e8e4;
+    --brand:#0f7a52; --brand2:#15a06a; --brandink:#0a5238;
+    --warn:#b25e00; --warnbg:#fff3e0; --okbg:#e7f6ee; --okink:#0f7a52;
+    --danger:#c0392b; --chip:#eef2ef; --r:14px;
   }
   @media (prefers-color-scheme: dark){
-    :root{ --bg:#0d1411; --card:#15201b; --ink:#e8efe9; --muted:#9bb0a6;
-      --line:#243029; --brand:#23b56b; --brand-ink:#7fe0aa; --brand-soft:#16302211;
-      --shadow:0 1px 3px rgba(0,0,0,.4),0 8px 24px rgba(0,0,0,.35); }
+    :root{ --bg:#0e1411; --card:#16201b; --ink:#e7efe9; --mut:#90a097; --line:#26332c;
+           --brand:#19a06a; --brand2:#1cb878; --brandink:#bdebd2; --chip:#1d2a23; --okbg:#13301f; --warnbg:#32260f; }
   }
-  *{box-sizing:border-box;-webkit-tap-highlight-color:transparent}
-  html,body{margin:0;padding:0}
-  body{
-    font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,Helvetica,Arial,sans-serif;
-    background:var(--bg); color:var(--ink); line-height:1.45;
-    padding:0 0 140px; max-width:560px; margin:0 auto;
-    -webkit-font-smoothing:antialiased;
-  }
-  header{
-    position:sticky; top:0; z-index:20; background:var(--bg);
-    padding:max(12px,env(safe-area-inset-top)) 16px 10px;
-    display:flex; align-items:center; gap:10px; border-bottom:1px solid var(--line);
-  }
-  .logo{width:30px;height:30px;border-radius:9px;display:grid;place-items:center;
-    background:var(--brand);color:#fff;font-weight:800;font-size:17px}
-  header h1{font-size:20px;margin:0;font-weight:800;letter-spacing:-.3px;flex:1}
-  .icon-btn{background:var(--card);border:1px solid var(--line);border-radius:10px;
-    width:38px;height:38px;display:grid;place-items:center;color:var(--muted);cursor:pointer;font-size:18px}
-  main{padding:14px 16px}
-  .card{background:var(--card);border:1px solid var(--line);border-radius:var(--r);
-    box-shadow:var(--shadow);padding:16px;margin:0 0 14px}
-  .card h2{font-size:13px;text-transform:uppercase;letter-spacing:.6px;color:var(--muted);
-    margin:0 0 12px;font-weight:700;display:flex;align-items:center;gap:8px}
-  .card h2 .count{background:var(--brand-soft);color:var(--brand-ink);border-radius:999px;
-    padding:1px 9px;font-size:12px;letter-spacing:0;text-transform:none}
-  .entry{display:grid;grid-template-columns:1fr 1fr;gap:8px}
-  .entry button{flex-direction:column;gap:6px;padding:14px 6px;font-size:13px;height:auto}
-  .entry button .em{font-size:22px}
-  button{font-family:inherit;font-size:15px;font-weight:600;cursor:pointer;border:none;
-    border-radius:12px;padding:11px 14px;display:inline-flex;align-items:center;justify-content:center;gap:7px}
-  .btn-primary{background:var(--brand);color:#fff}
-  .btn-primary:active{filter:brightness(.95)}
-  .btn-soft{background:var(--brand-soft);color:var(--brand-ink)}
-  .btn-ghost{background:transparent;color:var(--muted);border:1px solid var(--line)}
-  .btn-block{width:100%}
-  input,textarea{font-family:inherit;font-size:16px;color:var(--ink);background:var(--bg);
-    border:1px solid var(--line);border-radius:10px;padding:10px 12px;width:100%}
-  input:focus,textarea:focus{outline:2px solid var(--brand);outline-offset:-1px;border-color:transparent}
-  textarea{min-height:120px;resize:vertical;line-height:1.4}
-  .muted{color:var(--muted)}
-  .small{font-size:13px}
-  .row{display:flex;align-items:center;gap:8px}
-  /* itens */
-  .item{border:1px solid var(--line);border-radius:12px;padding:10px 12px;margin-bottom:10px;background:var(--bg)}
-  .item-top{display:flex;align-items:center;gap:8px}
-  .item-top .name{flex:1;border:none;background:transparent;font-weight:600;padding:4px 0}
-  .item-top .qty{width:48px;text-align:center;padding:6px 4px;font-weight:600}
-  .item-top .price{width:92px;text-align:right;padding:6px 8px;font-weight:700}
-  .item-top .x{color:var(--muted);background:transparent;padding:4px 6px;font-size:18px;line-height:1}
-  .assign{display:flex;flex-wrap:wrap;gap:6px;margin-top:9px;align-items:center}
-  .chip{border:1px solid var(--line);background:var(--card);border-radius:999px;
-    padding:5px 11px;font-size:13px;font-weight:600;cursor:pointer;display:inline-flex;align-items:center;gap:6px;color:var(--muted)}
-  .chip .dot{width:9px;height:9px;border-radius:50%}
-  .chip.on{color:#fff;border-color:transparent}
-  .chip.alltog{font-weight:700}
-  .split-note{font-size:12px;color:var(--muted);margin-top:6px}
-  .unassigned{border-color:var(--warn)!important}
-  .unassigned .split-note{color:var(--warn)}
-  /* pessoas */
-  .people{display:flex;flex-wrap:wrap;gap:8px;margin-bottom:10px}
-  .person-tag{border-radius:999px;padding:6px 10px 6px 12px;font-weight:700;font-size:14px;
-    color:#fff;display:inline-flex;align-items:center;gap:8px}
-  .person-tag button{background:rgba(255,255,255,.25);color:#fff;border-radius:50%;
-    width:20px;height:20px;padding:0;font-size:13px;line-height:1}
-  /* ajustes */
-  .adj{display:flex;align-items:center;justify-content:space-between;gap:10px;padding:9px 0;border-top:1px solid var(--line)}
-  .adj:first-of-type{border-top:none}
-  .adj .lbl{font-weight:600}
-  .adj .lbl small{display:block;font-weight:400;color:var(--muted);font-size:12px}
-  .adj-input{width:96px;text-align:right}
-  .switch{width:46px;height:28px;border-radius:999px;background:var(--line);position:relative;flex:0 0 auto;transition:.15s}
-  .switch.on{background:var(--brand)}
-  .switch::after{content:"";position:absolute;width:22px;height:22px;border-radius:50%;background:#fff;top:3px;left:3px;transition:.15s}
-  .switch.on::after{left:21px}
-  /* resultado */
-  .res-person{display:flex;align-items:center;gap:10px;padding:11px 0;border-top:1px solid var(--line)}
-  .res-person:first-child{border-top:none}
-  .res-avatar{width:34px;height:34px;border-radius:50%;color:#fff;font-weight:800;display:grid;place-items:center;flex:0 0 auto;font-size:14px}
-  .res-person .nm{flex:1;font-weight:600}
-  .res-person .vl{font-weight:800;font-size:17px}
-  .res-detail{font-size:12px;color:var(--muted);font-weight:400}
-  .totbar{position:fixed;left:0;right:0;bottom:0;z-index:30;background:var(--card);
-    border-top:1px solid var(--line);padding:12px 16px max(12px,env(safe-area-inset-bottom));
-    max-width:560px;margin:0 auto;box-shadow:0 -6px 24px rgba(16,34,27,.08)}
-  .totbar .line{display:flex;justify-content:space-between;align-items:baseline;margin-bottom:8px}
-  .totbar .grand{font-size:22px;font-weight:800}
-  .totbar .sub{font-size:12px;color:var(--muted)}
-  .hide{display:none!important}
-  .center{text-align:center}
-  .empty{text-align:center;color:var(--muted);padding:14px 0;font-size:14px}
-  .check{border-radius:12px;padding:10px 12px;margin:0 0 12px;font-size:13px;font-weight:600;line-height:1.45}
-  .check.ok{background:rgba(15,157,88,.14);color:var(--brand-ink)}
-  .check.warn{background:rgba(194,65,12,.14);color:var(--warn)}
-  .check a{color:inherit;text-decoration:underline;font-weight:800;cursor:pointer}
-  dialog{border:none;border-radius:18px;padding:0;max-width:420px;width:92%;background:var(--card);color:var(--ink);box-shadow:var(--shadow)}
-  dialog::backdrop{background:rgba(0,0,0,.45)}
-  .dlg-body{padding:18px}
-  .dlg-body h3{margin:0 0 6px;font-size:18px}
-  .spin{width:18px;height:18px;border:3px solid rgba(255,255,255,.4);border-top-color:#fff;border-radius:50%;animation:sp .7s linear infinite}
-  @keyframes sp{to{transform:rotate(360deg)}}
-  .toast{position:fixed;bottom:160px;left:50%;transform:translateX(-50%);background:var(--ink);color:var(--bg);
-    padding:10px 16px;border-radius:999px;font-size:14px;font-weight:600;z-index:50;opacity:0;transition:.2s;pointer-events:none}
-  .toast.show{opacity:1}
-  .cam-overlay{position:fixed;inset:0;z-index:100;background:#000;display:flex}
-  .cam-overlay video{width:100%;height:100%;object-fit:cover;background:#000}
-  .cam-hint{position:absolute;top:max(16px,env(safe-area-inset-top));left:16px;right:16px;text-align:center;
-    color:#fff;font-weight:600;font-size:14px;text-shadow:0 1px 4px rgba(0,0,0,.7)}
-  .cam-bar{position:absolute;bottom:0;left:0;right:0;display:flex;align-items:center;justify-content:space-between;
-    padding:22px 32px max(22px,env(safe-area-inset-bottom))}
-  .cam-side{background:rgba(255,255,255,.22);color:#fff;width:50px;height:50px;border-radius:50%;font-size:20px;display:grid;place-items:center;padding:0}
-  .cam-shutter{width:74px;height:74px;border-radius:50%;background:#fff;border:5px solid rgba(255,255,255,.45);box-shadow:0 0 0 3px rgba(0,0,0,.35);padding:0}
-  .cam-shutter:active{transform:scale(.94)}
+  *{ box-sizing:border-box; -webkit-tap-highlight-color:transparent }
+  html,body{ margin:0 }
+  body{ background:var(--bg); color:var(--ink); font:16px/1.45 -apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,system-ui,sans-serif;
+        padding-bottom:env(safe-area-inset-bottom) }
+  header{ position:sticky; top:0; z-index:5; background:var(--brand); color:#fff;
+          display:flex; align-items:center; gap:10px; padding:12px 16px; padding-top:calc(12px + env(safe-area-inset-top)) }
+  header .logo{ font-weight:700; font-size:18px; letter-spacing:.2px; flex:1 }
+  header button{ background:rgba(255,255,255,.16); color:#fff; border:0; border-radius:10px; padding:7px 10px; font-size:15px }
+  .tabs{ position:sticky; top:0; z-index:4; display:flex; background:var(--card); border-bottom:1px solid var(--line) }
+  .tabs button{ flex:1; background:transparent; border:0; padding:13px 8px; font-size:15px; font-weight:600; color:var(--mut); border-bottom:2.5px solid transparent; cursor:pointer }
+  .tabs button.on{ color:var(--brand); border-bottom-color:var(--brand) }
+  main{ max-width:640px; margin:0 auto; padding:16px }
+  .card{ background:var(--card); border:1px solid var(--line); border-radius:var(--r); padding:16px; margin-bottom:14px }
+  h2{ font-size:17px; margin:.2em 0 .6em } h3{ font-size:15px; margin:.2em 0 .5em }
+  .mut{ color:var(--mut) } .sm{ font-size:13px } .b{ font-weight:600 }
+  .row{ display:flex; align-items:center; gap:10px } .row.wrap{ flex-wrap:wrap } .grow{ flex:1 }
+  .between{ display:flex; align-items:center; justify-content:space-between; gap:10px }
+  button.btn{ background:var(--brand); color:#fff; border:0; border-radius:11px; padding:12px 14px; font-size:15px; font-weight:600; cursor:pointer }
+  button.btn.sec{ background:var(--chip); color:var(--ink) }
+  button.btn.ghost{ background:transparent; color:var(--brand); padding:8px 4px }
+  button.btn.block{ width:100% } button.btn.sm{ padding:8px 11px; font-size:14px }
+  button.btn[disabled]{ opacity:.5 }
+  a.link{ color:var(--brand); text-decoration:none; cursor:pointer }
+  input,select,textarea{ font:inherit; color:var(--ink); background:var(--card); border:1px solid var(--line); border-radius:10px; padding:11px 12px; width:100% }
+  input:focus,select:focus,textarea:focus{ outline:2px solid var(--brand2); outline-offset:-1px }
+  label.fld{ display:block; margin-bottom:10px } label.fld > span{ display:block; font-size:13px; color:var(--mut); margin-bottom:4px }
+  .grid2{ display:grid; grid-template-columns:1fr 1fr; gap:10px }
+  .grid4{ display:grid; grid-template-columns:1fr 1fr; gap:10px }
+  .chip{ display:inline-flex; align-items:center; gap:6px; background:var(--chip); border:1px solid var(--line); color:var(--ink);
+         padding:6px 11px; border-radius:999px; font-size:14px; cursor:pointer; user-select:none }
+  .chip.on{ background:var(--brand); color:#fff; border-color:var(--brand) }
+  .chip .x{ opacity:.6; font-weight:700 }
+  .pill{ display:inline-block; padding:3px 9px; border-radius:999px; font-size:12px; font-weight:600 }
+  .pill.pos{ background:var(--okbg); color:var(--okink) } .pill.neg{ background:var(--warnbg); color:var(--warn) } .pill.zero{ background:var(--chip); color:var(--mut) }
+  .item{ border:1px solid var(--line); border-radius:12px; padding:10px; margin-bottom:10px }
+  .listrow{ display:flex; align-items:center; justify-content:space-between; gap:10px; padding:12px 0; border-bottom:1px solid var(--line) }
+  .listrow:last-child{ border-bottom:0 }
+  .banner{ border-radius:12px; padding:11px 13px; margin-bottom:12px; font-size:14px }
+  .banner.warn{ background:var(--warnbg); color:var(--warn) } .banner.ok{ background:var(--okbg); color:var(--okink) }
+  .fab{ position:sticky; bottom:14px; margin-top:8px }
+  .empty{ text-align:center; color:var(--mut); padding:30px 10px }
+  .av{ width:30px; height:30px; border-radius:50%; display:grid; place-items:center; color:#fff; font-size:13px; font-weight:700; flex:none }
+  dialog{ border:0; border-radius:16px; padding:0; width:min(460px,94vw); background:var(--card); color:var(--ink) }
+  dialog::backdrop{ background:rgba(0,0,0,.45) } .dlg-bd{ padding:18px } .dlg-bd h2{ margin-top:0 }
+  .toast{ position:fixed; left:50%; bottom:26px; transform:translateX(-50%); background:#16201b; color:#fff; padding:11px 16px;
+          border-radius:12px; font-size:14px; max-width:90vw; text-align:center; z-index:80; box-shadow:0 6px 24px rgba(0,0,0,.25) }
+  .pix-box{ background:var(--chip); border-radius:10px; padding:10px; font:13px/1.4 ui-monospace,Menlo,monospace; word-break:break-all }
+  .qr{ display:grid; place-items:center; background:#fff; padding:12px; border-radius:12px; margin:10px auto; width:max-content }
+  .qr svg{ display:block; width:200px; height:200px }
+  #camOverlay{ position:fixed; inset:0; background:#000; z-index:90; display:flex; flex-direction:column }
+  #camOverlay.hide{ display:none } #camVideo{ flex:1; width:100%; object-fit:cover }
+  .cam-bar{ display:flex; align-items:center; justify-content:space-between; padding:18px 26px calc(20px + env(safe-area-inset-bottom)); background:#000 }
+  .cam-bar button{ background:rgba(255,255,255,.16); color:#fff; border:0; width:52px; height:52px; border-radius:50%; font-size:22px }
+  #camShot{ width:70px!important; height:70px!important; background:#fff!important; border:4px solid rgba(255,255,255,.5) }
+  .cam-hint{ color:#fff; text-align:center; padding:14px; font-size:14px; background:linear-gradient(#000,transparent) }
+  .spin{ width:30px; height:30px; border:3px solid var(--line); border-top-color:var(--brand); border-radius:50%; animation:sp 1s linear infinite; margin:0 auto }
+  @keyframes sp{ to{ transform:rotate(360deg) } }
 </style>
 </head>
 <body>
 <header>
-  <div class="logo">R</div>
-  <h1>Racha</h1>
-  <button class="icon-btn" id="btnReset" title="Recomeçar">↺</button>
-  <button class="icon-btn" id="btnConfig" title="Configurar">⚙</button>
+  <div class="logo">Racha</div>
+  <button id="hAcct" title="conta">entrar</button>
+  <button id="hCfg" aria-label="configurações">⚙</button>
 </header>
+<nav class="tabs">
+  <button id="tabRacha" class="on">Racha</button>
+  <button id="tabGrupos">Grupos</button>
+</nav>
+<main id="app"><div class="card"><div class="spin"></div></div></main>
 
-<main>
-  <!-- ENTRADA -->
-  <section class="card" id="entryCard">
-    <h2>Comece a conta</h2>
-    <div class="entry">
-      <button class="btn-soft" id="btnCamera"><span class="em">📷</span>Câmera</button>
-      <button class="btn-soft" id="btnGallery"><span class="em">🖼️</span>Galeria</button>
-      <button class="btn-soft" id="btnText"><span class="em">📝</span>Colar texto</button>
-      <button class="btn-soft" id="btnManual"><span class="em">✏️</span>Manual</button>
-    </div>
-    <input type="file" id="camInput" accept="image/*" capture="environment" class="hide">
-    <input type="file" id="galInput" accept="image/*" class="hide">
-    <div id="textArea" class="hide" style="margin-top:12px">
-      <textarea id="billText" placeholder="Cole aqui o texto da conta, uma linha por item. Ex.:&#10;2x Chopp        25,80&#10;Porção de fritas  38,00&#10;Picanha          92,90"></textarea>
-      <div class="row" style="margin-top:8px">
-        <button class="btn-primary" id="btnParse" style="flex:1">Ler itens</button>
-        <button class="btn-ghost" id="btnTextCancel">Fechar</button>
-      </div>
-    </div>
-  </section>
-
-  <!-- PESSOAS -->
-  <section class="card">
-    <h2>Pessoas <span class="count" id="peopleCount">0</span></h2>
-    <div class="people" id="peopleList"></div>
-    <div class="row">
-      <input id="personName" placeholder="Nome da pessoa" autocomplete="off">
-      <button class="btn-primary" id="btnAddPerson">Add</button>
-    </div>
-  </section>
-
-  <!-- ITENS -->
-  <section class="card">
-    <h2>Itens <span class="count" id="itemsCount">0</span></h2>
-    <div id="checkBanner" class="check hide"></div>
-    <div id="itemsList"></div>
-    <button class="btn-ghost btn-block" id="btnAddItem" style="margin-top:4px">+ Adicionar item</button>
-  </section>
-
-  <!-- AJUSTES -->
-  <section class="card">
-    <h2>Ajustes</h2>
-    <div class="adj">
-      <div class="lbl">Taxa de serviço <small>10% rateado pelo consumo</small></div>
-      <div class="row">
-        <input class="adj-input" id="serviceRate" type="number" inputmode="decimal" value="10" step="1" style="width:64px"> <span class="muted">%</span>
-        <div class="switch on" id="serviceSwitch"></div>
-      </div>
-    </div>
-    <div class="adj">
-      <div class="lbl">Couvert <small>dividido igual entre todos</small></div>
-      <input class="adj-input" id="couvert" inputmode="decimal" placeholder="0,00">
-    </div>
-    <div class="adj">
-      <div class="lbl">Desconto <small>rateado pelo consumo</small></div>
-      <input class="adj-input" id="discount" inputmode="decimal" placeholder="0,00">
-    </div>
-  </section>
-
-  <!-- RESULTADO -->
-  <section class="card" id="resultCard">
-    <h2>Quem paga o quê</h2>
-    <div id="resultList"><div class="empty">Adicione pessoas e itens pra ver a divisão.</div></div>
-  </section>
-</main>
-
-<!-- BARRA TOTAL -->
-<div class="totbar">
-  <div class="line">
-    <div>
-      <div class="grand" id="grandTotal">R$ 0,00</div>
-      <div class="sub" id="grandSub">subtotal R$ 0,00 + serviço R$ 0,00</div>
-    </div>
-    <button class="btn-primary" id="btnShare">Compartilhar</button>
-  </div>
-</div>
-
-<!-- CÂMERA -->
-<div id="camOverlay" class="cam-overlay hide">
-  <video id="camVideo" playsinline autoplay muted></video>
-  <div class="cam-hint">Enquadre a conta inteira e toque no botão para fotografar</div>
+<div id="camOverlay" class="hide">
+  <div class="cam-hint">Enquadre a conta e toque no botão</div>
+  <video id="camVideo" playsinline muted></video>
   <div class="cam-bar">
-    <button id="camCancel" class="cam-side" title="Cancelar">✕</button>
-    <button id="camShot" class="cam-shutter" aria-label="Fotografar"></button>
-    <button id="camFlip" class="cam-side" title="Virar câmera">⟲</button>
+    <button id="camCancel" aria-label="cancelar">✕</button>
+    <button id="camShot" aria-label="tirar foto"></button>
+    <button id="camFlip" aria-label="virar câmera">⟲</button>
   </div>
 </div>
+<input id="camInput" type="file" accept="image/*" capture="environment" hidden>
+<input id="galInput" type="file" accept="image/*" hidden>
 
-<!-- CONFIG DIALOG -->
-<dialog id="configDlg"><div class="dlg-body">
-  <h3>Leitura por foto</h3>
-  <p class="small muted">Cole sua <b>chave da API Anthropic</b> pra ler a conta por foto. Fica salva só neste aparelho, nunca no código.</p>
-  <input id="apiKey" type="password" autocomplete="off" placeholder="sk-ant-..." style="margin:8px 0 8px">
-  <label class="adj" style="border:none;padding:0 0 10px">
-    <span class="lbl small">Modelo <small>Haiku é mais barato; Sonnet lê cupom difícil</small></span>
-    <select id="ocrModel" style="font:inherit;padding:8px;border:1px solid var(--line);border-radius:10px;background:var(--bg);color:var(--ink)">
-      <option value="claude-haiku-4-5-20251001">Haiku 4.5</option>
-      <option value="claude-sonnet-4-6">Sonnet 4.6</option>
-    </select>
-  </label>
-  <details style="margin-bottom:10px">
-    <summary class="small muted" style="cursor:pointer">Avançado: usar proxy (Supabase) no lugar da chave</summary>
-    <p class="small muted" style="margin:8px 0 4px">Pra compartilhar com mais gente sem expor a chave. Deixe vazio pra usar a chave acima.</p>
-    <input id="ocrUrl" placeholder="https://xxxx.supabase.co/functions/v1/ocr">
+<dialog id="cfgDlg"><form method="dialog" class="dlg-bd">
+  <h2>Configurações</h2>
+  <h3>OCR da foto</h3>
+  <p class="sm mut" style="margin-top:0">Pra ler a conta por foto. A chave fica só neste aparelho (nunca no código).</p>
+  <label class="fld"><span>Chave Anthropic (sk-ant-…)</span><input id="cfgKey" type="password" placeholder="cobrança separada do Claude Code"></label>
+  <label class="fld"><span>Modelo</span><select id="cfgModel">
+    <option value="claude-haiku-4-5-20251001">Haiku 4.5 (barato)</option>
+    <option value="claude-sonnet-4-6">Sonnet 4.6 (cupom difícil)</option>
+  </select></label>
+  <details><summary class="sm mut">Avançado — proxy Supabase pra OCR</summary>
+    <label class="fld" style="margin-top:8px"><span>URL da função de OCR</span><input id="cfgOcrUrl" placeholder="https://….supabase.co/functions/v1/ocr"></label>
   </details>
-  <button class="btn-ghost btn-block" id="btnClearKey" style="margin-bottom:6px;color:var(--danger)">Apagar chave deste aparelho</button>
-  <p class="small muted" style="margin:0 0 12px">Dica: em aparelho compartilhado, apague a chave depois de dividir a conta. Use uma chave dedicada com limite de gasto.</p>
-  <div class="row">
-    <button class="btn-primary" id="btnSaveConfig" style="flex:1">Salvar</button>
-    <button class="btn-ghost" id="btnCloseConfig">Fechar</button>
+  <hr style="border:0;border-top:1px solid var(--line);margin:16px 0">
+  <h3>Grupos (livro-razão) — opcional</h3>
+  <p class="sm mut" style="margin-top:0">Pra usar a aba <b>Grupos</b> e guardar quem deve quem. Crie um projeto grátis em supabase.com, rode <code>supabase/migrations/0001_init.sql</code> e cole abaixo (Project Settings → API). A chave anon é pública por design — o RLS protege os dados.</p>
+  <label class="fld"><span>Supabase Project URL</span><input id="cfgUrl" placeholder="https://xxxx.supabase.co"></label>
+  <label class="fld"><span>anon public key</span><input id="cfgAnon" placeholder="eyJ..."></label>
+  <h3 style="margin-top:14px">Meu Pix (pra receber acertos)</h3>
+  <label class="fld"><span>Chave Pix</span><input id="cfgPix" placeholder="cpf, e-mail, telefone ou aleatória"></label>
+  <label class="fld"><span>Nome do recebedor</span><input id="cfgPixName" placeholder="como aparece no banco"></label>
+  <div class="row" style="margin-top:14px">
+    <button class="btn grow" id="cfgSave" value="default">Salvar</button>
+    <button class="btn sec" id="cfgClose" formnovalidate>Fechar</button>
   </div>
-</div></dialog>
+</form></dialog>
 
-<div class="toast" id="toast"></div>
-
+<script src="https://cdn.jsdelivr.net/npm/qrcode-generator@1.4.4/qrcode.js"></script>
+<script type="module" src="./js/app.js"></script>
 <script>
-"use strict";
-const $ = (s,el=document)=>el.querySelector(s);
-const $$ = (s,el=document)=>[...el.querySelectorAll(s)];
-const PALETTE = ["#0f9d58","#1565c0","#e65100","#8e24aa","#c2185b","#00897b","#5d4037","#455a64","#d32f2f","#7cb342"];
-const fmt = n => "R$ "+(Math.round(n*100)/100).toLocaleString("pt-BR",{minimumFractionDigits:2,maximumFractionDigits:2});
-const DEFAULT_MODEL = "claude-haiku-4-5-20251001";
-const OCR_PROMPT = `Você recebe a FOTO de uma conta/cupom de restaurante ou bar no Brasil.
-Extraia os dados e responda APENAS com JSON válido, sem texto extra, neste formato:
-{"items":[{"name":"nome do item","qty":1,"unitPrice":0.00}],"subtotal":0.00,"service":{"rate":10,"amount":0.00},"total":0.00}
-Regras:
-- items: cada item de consumo. unitPrice é o preço UNITÁRIO em reais (número, ponto decimal); se a linha mostra só o total da linha, divida pelo qty. qty é inteiro (1 se não houver). NÃO inclua linhas de total, subtotal, serviço, couvert, CNPJ ou impostos como itens. Não invente itens ilegíveis. Cuidado para NÃO repetir o mesmo item duas vezes.
-- subtotal: a soma do consumo ANTES da taxa de serviço, exatamente como impressa; se não houver, use null.
-- service: a taxa de serviço/gorjeta SE existir na conta — "rate" é o percentual (ex.: 10) e "amount" o valor em reais; se a conta não cobra serviço, use null.
-- total: o total final impresso na conta; se não houver, use null.
-- Use null quando o campo não estiver visível. Não calcule nada que não esteja impresso.`;
-
-let state = load() || { items:[], people:[], serviceRate:0.10, serviceOn:true, couvert:0, discount:0, billSubtotal:null, billTotal:null };
-let uid = Math.max(0, ...state.items.map(i=>i.id||0), ...state.people.map(p=>p.id||0));
-const nid = ()=> ++uid;
-
-/* ---------- persistência ---------- */
-function save(){ try{ localStorage.setItem("racha.state", JSON.stringify(state)); }catch(e){} }
-function load(){ try{ return JSON.parse(localStorage.getItem("racha.state")); }catch(e){ return null; } }
-
-/* ---------- dinheiro ---------- */
-function parseMoney(raw){
-  if(typeof raw==="number") return raw;
-  if(!raw) return 0;
-  let s = String(raw).replace(/[R$\s]/gi,"");
-  if(s.includes(",")){ s = s.replace(/\./g,"").replace(",","."); }      // 1.234,56 -> 1234.56
-  const v = parseFloat(s);
-  return isFinite(v)? v : 0;
-}
-
-/* ---------- cálculo da divisão ---------- */
-function compute(){
-  const people = state.people;
-  const tally = {}; people.forEach(p=> tally[p.id]={ sub:0, items:[] });
-  let subtotalAll = 0, hasUnassigned = false;
-
-  state.items.forEach(it=>{
-    const total = (Number(it.qty)||0) * (Number(it.price)||0);
-    subtotalAll += total;
-    const who = (it.assigned||[]).filter(id=> tally[id]);
-    if(who.length===0){ hasUnassigned = hasUnassigned || total>0; return; }
-    const each = total/who.length;
-    who.forEach(id=>{ tally[id].sub += each; tally[id].items.push(it.name||"item"); });
-  });
-
-  const rate = state.serviceOn ? (Number(state.serviceRate)||0) : 0;
-  const couvert = Number(state.couvert)||0;
-  const discount = Number(state.discount)||0;
-  const perCouvert = people.length ? couvert/people.length : 0;
-
-  let rows = people.map(p=>{
-    const t = tally[p.id];
-    const service = t.sub * rate;
-    const disc = subtotalAll>0 ? discount*(t.sub/subtotalAll) : 0;
-    const total = t.sub + service + perCouvert - disc;
-    return { p, sub:t.sub, service, couvert:perCouvert, disc, total, items:t.items };
-  });
-
-  const grand = subtotalAll + subtotalAll*rate + couvert - discount;
-  rows = reconcile(rows, grand);                  // arredondamento por maior resto
-  return { rows, subtotalAll, service: subtotalAll*rate, couvert, discount, grand, hasUnassigned };
-}
-
-// garante que a soma das partes (em centavos) bate com o total
-function reconcile(rows, grand){
-  if(!rows.length) return rows;
-  const target = Math.round(grand*100);
-  let cents = rows.map(r=> Math.floor(r.total*100));
-  let diff = target - cents.reduce((a,b)=>a+b,0);
-  const order = rows.map((r,i)=>({i, frac:(r.total*100)-cents[i]})).sort((a,b)=> b.frac-a.frac);
-  for(let k=0; diff>0 && order.length; k++,diff--){ cents[order[k%order.length].i]++; }
-  for(let k=0; diff<0 && order.length; k++,diff++){ cents[order[order.length-1-(k%order.length)].i]--; }
-  rows.forEach((r,i)=> r.total = cents[i]/100);
-  return rows;
-}
-
-/* ---------- render ---------- */
-function render(){
-  renderPeople(); renderItems(); renderResult();
-  $("#serviceRate").value = Math.round((state.serviceRate||0)*100);
-  $("#serviceSwitch").classList.toggle("on", state.serviceOn);
-  save();
-}
-
-function renderPeople(){
-  $("#peopleCount").textContent = state.people.length;
-  const wrap = $("#peopleList"); wrap.innerHTML="";
-  state.people.forEach(p=>{
-    const el = document.createElement("span");
-    el.className="person-tag"; el.style.background=p.color;
-    el.innerHTML = `<span>${esc(p.name)}</span>`;
-    const b=document.createElement("button"); b.textContent="×";
-    b.onclick=()=>{ state.people=state.people.filter(x=>x.id!==p.id);
-      state.items.forEach(it=> it.assigned=(it.assigned||[]).filter(id=>id!==p.id)); render(); };
-    el.appendChild(b); wrap.appendChild(el);
-  });
-}
-
-function renderItems(){
-  $("#itemsCount").textContent = state.items.length;
-  const list = $("#itemsList"); list.innerHTML="";
-  if(!state.items.length){ list.innerHTML='<div class="empty">Nenhum item ainda.</div>'; return; }
-  state.items.forEach(it=>{
-    const total=(Number(it.qty)||0)*(Number(it.price)||0);
-    const who=(it.assigned||[]).filter(id=> state.people.some(p=>p.id===id));
-    const card=document.createElement("div");
-    card.className="item"+((who.length===0&&total>0)?" unassigned":"");
-    const top=document.createElement("div"); top.className="item-top";
-    top.innerHTML =
-      `<input class="qty" inputmode="numeric" value="${it.qty}">`+
-      `<input class="name" placeholder="item" value="${esc(it.name)}">`+
-      `<input class="price" inputmode="decimal" value="${(Number(it.price)||0).toLocaleString('pt-BR',{minimumFractionDigits:2})}">`+
-      `<button class="x">×</button>`;
-    top.querySelector(".qty").oninput=e=>{ it.qty=parseInt(e.target.value)||0; renderResult(); save(); };
-    top.querySelector(".name").oninput=e=>{ it.name=e.target.value; save(); };
-    top.querySelector(".price").onchange=e=>{ it.price=parseMoney(e.target.value); render(); };
-    top.querySelector(".x").onclick=()=>{ state.items=state.items.filter(x=>x.id!==it.id); render(); };
-    card.appendChild(top);
-
-    const assign=document.createElement("div"); assign.className="assign";
-    if(state.people.length){
-      const allOn = who.length===state.people.length;
-      const at=document.createElement("button");
-      at.className="chip alltog"+(allOn?" on":""); at.style.background=allOn?"var(--brand)":"";
-      at.textContent= allOn?"todos ✓":"todos";
-      at.onclick=()=>{ it.assigned = allOn?[]:state.people.map(p=>p.id); render(); };
-      assign.appendChild(at);
-      state.people.forEach(p=>{
-        const on=who.includes(p.id);
-        const c=document.createElement("button"); c.className="chip"+(on?" on":"");
-        if(on) c.style.background=p.color;
-        c.innerHTML=`<span class="dot" style="background:${on?'#fff':p.color}"></span>${esc(p.name)}`;
-        c.onclick=()=>{ it.assigned=it.assigned||[];
-          it.assigned = on? it.assigned.filter(id=>id!==p.id) : [...it.assigned,p.id]; render(); };
-        assign.appendChild(c);
-      });
-    } else {
-      assign.innerHTML='<span class="split-note">Adicione pessoas para atribuir este item.</span>';
-    }
-    card.appendChild(assign);
-    const note=document.createElement("div"); note.className="split-note";
-    note.textContent = who.length>1 ? `${fmt(total)} ÷ ${who.length} = ${fmt(total/who.length)} cada`
-                     : (who.length===0&&total>0) ? "⚠ ninguém marcado" : "";
-    if(note.textContent) card.appendChild(note);
-    list.appendChild(card);
-  });
-}
-
-function renderResult(){
-  const r = compute();
-  renderCheck();
-  $("#grandTotal").textContent = fmt(r.grand);
-  $("#grandSub").textContent = `subtotal ${fmt(r.subtotalAll)} · serviço ${fmt(r.service)}`+
-    (r.couvert?` · couvert ${fmt(r.couvert)}`:"")+(r.discount?` · −${fmt(r.discount)}`:"");
-  const list=$("#resultList");
-  if(!state.people.length || r.grand<=0){ list.innerHTML='<div class="empty">Adicione pessoas e itens pra ver a divisão.</div>';
-    if(r.hasUnassigned) list.innerHTML+='<div class="split-note unassigned" style="text-align:center">⚠ Há itens sem ninguém marcado.</div>';
-    return; }
-  list.innerHTML="";
-  r.rows.forEach(row=>{
-    const el=document.createElement("div"); el.className="res-person";
-    el.innerHTML =
-      `<div class="res-avatar" style="background:${row.p.color}">${esc(initial(row.p.name))}</div>`+
-      `<div class="nm">${esc(row.p.name)}<div class="res-detail">consumo ${fmt(row.sub)}${row.service?` + serviço ${fmt(row.service)}`:""}${row.couvert?` + couvert ${fmt(row.couvert)}`:""}${row.disc?` − ${fmt(row.disc)}`:""}</div></div>`+
-      `<div class="vl">${fmt(row.total)}</div>`;
-    list.appendChild(el);
-  });
-  if(r.hasUnassigned){
-    const w=document.createElement("div"); w.className="split-note unassigned";
-    w.textContent="⚠ Há itens sem ninguém marcado — não estão somados acima."; list.appendChild(w);
-  }
-}
-
-// conferência: compara o que o app calcula com o que está impresso na conta
-function renderCheck(){
-  const el=$("#checkBanner"); if(!el) return;
-  const r=compute();
-  let ref=null, actual=0, base="";
-  if(state.billSubtotal>0){ ref=state.billSubtotal; actual=r.subtotalAll; base="Os itens somam"; }
-  else if(state.billTotal>0){ ref=state.billTotal; actual=r.grand; base="O total calculado é"; }
-  if(ref==null){ el.classList.add("hide"); el.innerHTML=""; return; }
-  el.classList.remove("hide");
-  const diff=Math.round((actual-ref)*100)/100;
-  if(Math.abs(diff)<=0.05){
-    el.className="check ok";
-    el.innerHTML=`✓ Confere com a conta (${fmt(ref)}).`;
-  } else {
-    const hint = diff>0 ? "a mais — talvez um item repetido" : "a menos — talvez falte um item";
-    el.className="check warn";
-    el.innerHTML=`⚠ ${base} ${fmt(actual)}, mas a conta diz ${fmt(ref)} — diferença de ${fmt(Math.abs(diff))} ${hint}. Revise os itens. <a id="dismissCheck">ignorar</a>`;
-    const d=el.querySelector("#dismissCheck");
-    if(d) d.onclick=()=>{ state.billSubtotal=null; state.billTotal=null; render(); };
-  }
-}
-
-const esc = s => String(s==null?"":s).replace(/[&<>"]/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;"}[c]));
-const initial = s => (String(s||"?").trim()[0]||"?").toUpperCase();
-
-/* ---------- ações ---------- */
-function addPerson(name){
-  name=(name||"").trim(); if(!name) return;
-  const color=PALETTE[state.people.length%PALETTE.length];
-  state.people.push({id:nid(),name,color}); render();
-}
-function addItem(name="",qty=1,price=0){
-  state.items.push({id:nid(),name,qty,price,assigned:state.people.map(p=>p.id)}); render();
-}
-
-/* parser de texto da conta */
-function parseBill(text){
-  const found=[]; let total=null, subtotal=null, service=null;
-  text.split(/\r?\n/).forEach(line=>{
-    const raw=line.trim(); if(!raw) return;
-    const m=raw.match(/(\d{1,3}(?:\.\d{3})*,\d{2}|\d+,\d{2}|\d+\.\d{2})\s*$/);
-    const val=m? parseMoney(m[1]) : null;
-    const low=raw.toLowerCase();
-    if(/servi[çc]o|gorjeta/.test(low) && !/\d+\s*x/i.test(raw)){
-      const pct=raw.match(/(\d{1,2})\s*%/);
-      service={ rate: pct?parseInt(pct[1]):null, amount: (val&&val>0)?val:null };
-      return;
-    }
-    if(/sub[\s-]?total/.test(low)){ if(val>0) subtotal=val; return; }
-    if(/^total|valor a pagar|total a pagar|total geral/.test(low)){ if(val>0) total=val; return; }
-    if(/troco|cnpj|cpf|mesa|gar[çc]om|atend|acr[ée]scimo|desconto|couvert/.test(low)) return;
-    if(!(val>0)) return;
-    let rest=raw.slice(0,m.index).trim().replace(/[\.\-–—:\s]+$/,"");
-    let qty=1;
-    const q=rest.match(/^(\d{1,3})\s*(x|un|und|unid|pç|pc|\b)\s+/i);
-    if(q && parseInt(q[1])>0){ qty=parseInt(q[1]); rest=rest.slice(q[0].length).trim(); }
-    rest=rest.replace(/^[xX]\s*/,"").replace(/\s{2,}/g," ").trim();
-    if(!rest) rest="item";
-    found.push({name:rest,qty,price:val});
-  });
-  return {items:found, total, subtotal, service};
-}
-
-function applyParsed(parsed){
-  if(!parsed.items.length){ toast("Não achei itens. Tente o modo manual."); return; }
-  parsed.items.forEach(p=> state.items.push({id:nid(),name:p.name,qty:p.qty,price:p.price,assigned:state.people.map(x=>x.id)}));
-  applyBillMeta(parsed);
-  render(); toast(`${parsed.items.length} ${parsed.items.length>1?"itens lidos":"item lido"} ✓`);
-}
-
-// guarda subtotal/total da conta e puxa a taxa de serviço discriminada (chamar DEPOIS de inserir os itens)
-function applyBillMeta(meta){
-  if(!meta) return;
-  if(meta.subtotal>0) state.billSubtotal = meta.subtotal;   // só atualiza a referência se a conta trouxe o valor
-  if(meta.total>0)    state.billTotal    = meta.total;
-  if(meta.service){
-    state.serviceOn = true;
-    const itemsSub = state.items.reduce((s,it)=> s+(Number(it.qty)||0)*(Number(it.price)||0), 0);
-    if(meta.service.rate>0) state.serviceRate = meta.service.rate/100;
-    else if(meta.service.amount>0 && itemsSub>0) state.serviceRate = meta.service.amount/itemsSub;
-  } else if(meta.serviceIncluded){ state.serviceOn = true; }   // compat formato antigo
-}
-
-/* foto -> OCR: chave Anthropic direta (padrão) ou proxy Supabase (avançado) */
-function ocrConfigured(){ return localStorage.getItem("racha.ocrUrl") || localStorage.getItem("racha.apiKey"); }
-
-async function readPhoto(file){               // veio de um <input type=file> (galeria/arquivo)
-  if(!ocrConfigured()){ toast("Informe a chave da API em ⚙"); openConfig(); return; }
-  let img;
-  try{ img=await compress(file); }catch(e){ toast("Não consegui ler a imagem."); return; }
-  await ocrAndApply(img.data, img.media);
-}
-
-async function ocrAndApply(data, media){      // recebe base64 já pronto (galeria OU câmera)
-  if(!ocrConfigured()){ toast("Informe a chave da API em ⚙"); openConfig(); return; }
-  const url=localStorage.getItem("racha.ocrUrl");
-  const key=localStorage.getItem("racha.apiKey");
-  const dlg=loadingDialog("Lendo a foto…");
-  try{
-    let json;
-    if(url){
-      let res;
-      try{ res=await fetch(url,{method:"POST",headers:{"Content-Type":"application/json"},
-        body:JSON.stringify({image:data,mediaType:media})}); }
-      catch(err){ throw new Error("rede: "+(err&&err.message||err)); }
-      if(!res.ok){ let detail=""; try{ detail=(await res.json())?.error||""; }catch(_){}
-        throw new Error("HTTP "+res.status+(detail?(": "+detail):"")); }
-      json=await res.json();
-    } else {
-      json=await directOCR(data,media,key);
-    }
-    const items=json.items||[];
-    if(!items.length) throw new Error("vazio");
-    items.forEach(it=> state.items.push({id:nid(),name:it.name||"item",
-      qty:Number(it.qty)||1, price:parseMoney(it.unitPrice ?? it.price ?? 0), assigned:state.people.map(p=>p.id)}));
-    applyBillMeta(json);
-    render(); toast(`${items.length} ${items.length>1?"itens lidos":"item lido"} da foto ✓`);
-  }catch(e){ toast(ocrError(e), 6000); }
-  finally{ dlg.close(); dlg.remove(); }
-}
-
-/* câmera in-app via getUserMedia (não depende do capture, que falha em vários Androids) */
-let camStream=null, camFacing="environment";
-async function openCamera(){
-  if(!ocrConfigured()){ toast("Informe a chave da API em ⚙"); openConfig(); return; }
-  if(!navigator.mediaDevices?.getUserMedia){ $("#camInput").click(); return; }   // sem API -> input arquivo
-  try{ camStream=await grabCam(camFacing); }
-  catch(e){ console.warn("[Racha cam]", e);
-    toast(/denied|permission/i.test(String(e))? "Permita a câmera no navegador." : "Câmera indisponível — abrindo arquivos.");
-    $("#camInput").click(); return; }
-  const v=$("#camVideo"); v.srcObject=camStream; v.muted=true; v.playsInline=true;
-  try{ await v.play(); }catch(_){}
-  $("#camOverlay").classList.remove("hide"); document.body.style.overflow="hidden";
-}
-async function grabCam(facing){
-  try{ return await navigator.mediaDevices.getUserMedia({video:{facingMode:{ideal:facing}},audio:false}); }
-  catch(_){ return await navigator.mediaDevices.getUserMedia({video:true,audio:false}); }  // alguns aparelhos recusam facingMode
-}
-function closeCamera(){
-  if(camStream){ camStream.getTracks().forEach(t=>t.stop()); camStream=null; }
-  $("#camOverlay").classList.add("hide"); $("#camVideo").srcObject=null; document.body.style.overflow="";
-}
-async function flipCamera(){
-  camFacing = camFacing==="environment" ? "user" : "environment";
-  if(camStream) camStream.getTracks().forEach(t=>t.stop());
-  try{ camStream=await grabCam(camFacing); $("#camVideo").srcObject=camStream; await $("#camVideo").play(); }
-  catch(e){ toast("Não consegui trocar de câmera."); }
-}
-async function shootCamera(){
-  const v=$("#camVideo"); const w=v.videoWidth, h=v.videoHeight;
-  if(!w||!h){ toast("Câmera ainda carregando…"); return; }
-  const max=1600; let cw=w, ch=h;
-  if(Math.max(w,h)>max){ const s=max/Math.max(w,h); cw=Math.round(w*s); ch=Math.round(h*s); }
-  const cv=document.createElement("canvas"); cv.width=cw; cv.height=ch;
-  cv.getContext("2d").drawImage(v,0,0,cw,ch);
-  const data=cv.toDataURL("image/jpeg",0.82).split(",")[1];
-  closeCamera();
-  await ocrAndApply(data, "image/jpeg");
-}
-
-// chama o Claude vision direto do navegador (chave fica só neste aparelho)
-async function directOCR(image, media, key){
-  const model=localStorage.getItem("racha.ocrModel")||DEFAULT_MODEL;
-  let res;
-  try{
-    res=await fetch("https://api.anthropic.com/v1/messages",{
-      method:"POST",
-      headers:{
-        "x-api-key":key,
-        "anthropic-version":"2023-06-01",
-        "anthropic-dangerous-direct-browser-access":"true",
-        "content-type":"application/json"
-      },
-      body:JSON.stringify({ model, max_tokens:2000, messages:[{role:"user",content:[
-        {type:"image",source:{type:"base64",media_type:media,data:image}},
-        {type:"text",text:OCR_PROMPT}
-      ]}]})
-    });
-  }catch(err){ throw new Error("rede: "+(err&&err.message||err)); }   // CORS/offline lança TypeError
-  if(!res.ok){
-    let detail=""; try{ detail=(await res.json())?.error?.message||""; }catch(_){}
-    throw new Error("HTTP "+res.status+(detail?(": "+detail):""));
-  }
-  const d=await res.json();
-  const text=(d.content?.[0]?.text||"").trim();
-  const m=text.match(/\{[\s\S]*\}/);
-  if(!m) throw new Error("vazio");
-  return JSON.parse(m[0]);
-}
-function ocrError(e){
-  const s=String(e&&e.message||e);
-  console.error("[Racha OCR]", e);   // detalhe completo fica no console
-  if(/401|403|authentication|invalid x-api-key|permission/i.test(s)) return "Chave inválida ou sem permissão. Confira em ⚙.";
-  if(/credit|billing|balance|payment|quota|insufficient/i.test(s)) return "Sem créditos na API Anthropic. Adicione créditos no console — é cobrança separada do Claude Code.";
-  if(/429|rate.?limit|overloaded|529/i.test(s)) return "API ocupada ou limite atingido. Tente de novo em instantes.";
-  if(/404|not.?found|model/i.test(s)) return "Modelo indisponível pra essa conta. Tente o outro modelo em ⚙.";
-  if(/^rede:|failed to fetch|networkerror|load failed/i.test(s)) return "Não conectou na API (rede ou CORS). Detalhe no console; se persistir, use o proxy.";
-  if(/vazio/.test(s)) return "Não li itens nessa foto. Tente uma foto mais nítida ou use texto/manual.";
-  return "Falha ao ler a foto — "+s;
-}
-
-function compress(file){
-  return new Promise((resolve,reject)=>{
-    const img=new Image(); const fr=new FileReader();
-    fr.onload=()=>{ img.onload=()=>{
-      const max=1600; let {width:w,height:h}=img;
-      if(Math.max(w,h)>max){ const s=max/Math.max(w,h); w=Math.round(w*s); h=Math.round(h*s); }
-      const cv=document.createElement("canvas"); cv.width=w; cv.height=h;
-      cv.getContext("2d").drawImage(img,0,0,w,h);
-      const url=cv.toDataURL("image/jpeg",0.82);
-      resolve({data:url.split(",")[1], media:"image/jpeg"});
-    }; img.onerror=reject; img.src=fr.result; };
-    fr.onerror=reject; fr.readAsDataURL(file);
-  });
-}
-
-/* compartilhar */
-function shareText(){
-  const r=compute();
-  if(!state.people.length){ toast("Adicione pessoas primeiro."); return; }
-  let t=`💸 Racha da conta — total ${fmt(r.grand)}\n`;
-  if(state.serviceOn) t+=`(inclui ${Math.round(state.serviceRate*100)}% de serviço)\n`;
-  t+="\n";
-  r.rows.forEach(row=> t+=`• ${row.p.name}: ${fmt(row.total)}\n`);
-  t+="\nfeito no Racha";
-  if(navigator.share){ navigator.share({text:t}).catch(()=>{}); }
-  else { navigator.clipboard?.writeText(t); toast("Resumo copiado ✓"); }
-}
-
-/* ---------- UI helpers ---------- */
-let toastT;
-function toast(msg, ms){ const el=$("#toast"); el.textContent=msg; el.classList.add("show");
-  clearTimeout(toastT); toastT=setTimeout(()=>el.classList.remove("show"), ms||2200); }
-function loadingDialog(msg){
-  const d=document.createElement("dialog");
-  d.innerHTML=`<div class="dlg-body center"><div class="spin" style="margin:6px auto 12px;border-color:rgba(15,157,88,.25);border-top-color:var(--brand)"></div>${esc(msg)}</div>`;
-  document.body.appendChild(d); d.showModal(); return d;
-}
-function openConfig(){
-  $("#apiKey").value=localStorage.getItem("racha.apiKey")||"";
-  $("#ocrUrl").value=localStorage.getItem("racha.ocrUrl")||"";
-  $("#ocrModel").value=localStorage.getItem("racha.ocrModel")||DEFAULT_MODEL;
-  $("#configDlg").showModal();
-}
-function saveConfig(){
-  localStorage.setItem("racha.apiKey",$("#apiKey").value.trim());
-  localStorage.setItem("racha.ocrUrl",$("#ocrUrl").value.trim());
-  localStorage.setItem("racha.ocrModel",$("#ocrModel").value);
-  $("#configDlg").close(); toast("Salvo ✓");
-}
-
-/* ---------- listeners ---------- */
-$("#btnAddPerson").onclick=()=>{ addPerson($("#personName").value); $("#personName").value=""; $("#personName").focus(); };
-$("#personName").addEventListener("keydown",e=>{ if(e.key==="Enter"){ addPerson(e.target.value); e.target.value=""; }});
-$("#btnAddItem").onclick=()=> addItem();
-$("#btnManual").onclick=()=> addItem();
-$("#btnText").onclick=()=>{ $("#textArea").classList.toggle("hide"); $("#billText").focus(); };
-$("#btnTextCancel").onclick=()=> $("#textArea").classList.add("hide");
-$("#btnParse").onclick=()=>{ applyParsed(parseBill($("#billText").value)); $("#billText").value=""; $("#textArea").classList.add("hide"); };
-$("#btnCamera").onclick=openCamera;        // câmera in-app (getUserMedia); cai pro #camInput se falhar
-$("#btnGallery").onclick=()=> $("#galInput").click();
-const onPick=e=>{ const f=e.target.files[0]; if(f) readPhoto(f); e.target.value=""; };
-$("#camInput").onchange=onPick;
-$("#galInput").onchange=onPick;
-$("#camCancel").onclick=closeCamera;
-$("#camShot").onclick=shootCamera;
-$("#camFlip").onclick=flipCamera;
-$("#btnShare").onclick=shareText;
-
-$("#serviceRate").onchange=e=>{ state.serviceRate=(parseFloat(e.target.value)||0)/100; render(); };
-$("#serviceSwitch").onclick=()=>{ state.serviceOn=!state.serviceOn; render(); };
-$("#couvert").onchange=e=>{ state.couvert=parseMoney(e.target.value); e.target.value=state.couvert?state.couvert.toLocaleString('pt-BR',{minimumFractionDigits:2}):""; renderResult(); save(); };
-$("#discount").onchange=e=>{ state.discount=parseMoney(e.target.value); e.target.value=state.discount?state.discount.toLocaleString('pt-BR',{minimumFractionDigits:2}):""; renderResult(); save(); };
-
-$("#btnConfig").onclick=openConfig;
-$("#btnCloseConfig").onclick=()=> $("#configDlg").close();
-$("#btnSaveConfig").onclick=saveConfig;
-$("#btnClearKey").onclick=()=>{
-  if(!localStorage.getItem("racha.apiKey")){ toast("Nenhuma chave salva neste aparelho."); return; }
-  localStorage.removeItem("racha.apiKey"); $("#apiKey").value=""; toast("Chave apagada deste aparelho ✓");
-};
-$("#btnReset").onclick=()=>{ if(confirm("Recomeçar? Apaga itens e pessoas.")){ state={items:[],people:[],serviceRate:0.10,serviceOn:true,couvert:0,discount:0,billSubtotal:null,billTotal:null}; render(); } };
-
-/* init */
-if(state.couvert) $("#couvert").value=state.couvert.toLocaleString('pt-BR',{minimumFractionDigits:2});
-if(state.discount) $("#discount").value=state.discount.toLocaleString('pt-BR',{minimumFractionDigits:2});
-render();
-
-if("serviceWorker" in navigator){ navigator.serviceWorker.register("sw.js").catch(()=>{}); }
+  if("serviceWorker" in navigator){ window.addEventListener("load", () => navigator.serviceWorker.register("./sw.js").catch(()=>{})); }
 </script>
 </body>
 </html>

@@ -1,10 +1,10 @@
 // Camada de dados: cliente Supabase + auth + CRUD + RPCs.
-// O cliente vem do CDN como ES module (sem build). Config (URL + chave anon pública)
+// O cliente vem do CDN como ES module, carregado SOB DEMANDA (import dinâmico) — assim a aba
+// Racha (calculadora) funciona offline mesmo sem Supabase. Config (URL + chave anon pública)
 // fica no localStorage — a chave anon é pública por design; o RLS é que protege os dados.
-import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 
 const CFG_KEY = "racha.sb";
-let _client = null;
+let _client = null, _createClient = null;
 
 export function getSbConfig(){
   try{ return JSON.parse(localStorage.getItem(CFG_KEY)) || null; }catch(_){ return null; }
@@ -15,12 +15,17 @@ export function setSbConfig(url, anon){
 }
 export function hasConfig(){ const c = getSbConfig(); return !!(c && c.url && c.anon); }
 
+// Carrega a lib (uma vez) e cria o cliente. Chamar no boot quando houver config.
+export async function init(){
+  if(!hasConfig()) return false;
+  if(!_createClient){ const m = await import("https://esm.sh/@supabase/supabase-js@2"); _createClient = m.createClient; }
+  if(!_client){ const c = getSbConfig(); _client = _createClient(c.url, c.anon, { auth: { persistSession: true, autoRefreshToken: true, detectSessionInUrl: true } }); }
+  return true;
+}
+
 export function sb(){
   if(_client) return _client;
-  const c = getSbConfig();
-  if(!c || !c.url || !c.anon) throw new Error("Configure a URL e a chave do Supabase em ⚙.");
-  _client = createClient(c.url, c.anon, { auth: { persistSession: true, autoRefreshToken: true, detectSessionInUrl: true } });
-  return _client;
+  throw new Error("Supabase não inicializado — configure a conexão em ⚙.");
 }
 
 const unwrap = ({ data, error }) => { if(error) throw error; return data; };
