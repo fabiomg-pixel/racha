@@ -1,0 +1,7 @@
+{
+  "name": "racha-grupos",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "Racha Grupos — livro-razão de contas (PWA estático, sem build). package.json só marca os .js como ES modules."
+}

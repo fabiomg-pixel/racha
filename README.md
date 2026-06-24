@@ -72,17 +72,57 @@ Depois, em **⚙ → Avançado**, cole a URL `https://SEU_REF.supabase.co/functi
 
 > O ambiente do Fabio bloqueia `api.github.com` no navegador, mas **não** bloqueia `api.anthropic.com` nem o Supabase — então os dois caminhos funcionam.
 
+## Racha Grupos — versão multiusuário (livro-razão, estilo Splitwise)
+
+Em `grupos/` mora a evolução do Racha: além de dividir **uma** conta, ela guarda o **saldo acumulado** entre as pessoas ao longo do tempo (quem deve quanto a quem), com login, grupos recorrentes, **quem pagou**, **acerto via Pix** (copia-e-cola + QR) e **simplificação de dívidas** (menor nº de transferências). A divisão por foto/OCR continua sendo o diferencial — é a tela de lançar despesa.
+
+**No ar (depois de configurar):** `…/racha/grupos/` · a calculadora simples de 1 aparelho continua em `…/racha/`.
+
+### Configurar (uma vez, ~5 min)
+
+1. Crie um projeto grátis em **supabase.com**.
+2. No **SQL Editor**, cole e rode todo o `supabase/migrations/0001_init.sql` (cria tabelas, RLS, e as RPCs `create_expense` / `group_balances` / `join_group`).
+3. Em **Project Settings → API**, copie a **Project URL** e a chave **anon public**.
+4. Abra `grupos/`, toque em **⚙** e cole as duas. (A chave anon é pública por design — o **RLS** é que protege os dados; cada um só enxerga os grupos que participa.)
+5. Cadastre sua **chave Pix** em ⚙ pra poder receber acertos. O OCR usa as mesmas chaves do app simples.
+
+### Como usa
+
+1. **Entrar** (link mágico por e-mail, sem senha).
+2. **Criar um grupo** e adicionar gente — quem tem conta entra pelo **link de convite**; quem não tem vira “membro fantasma” (e depois reivindica “esse sou eu”).
+3. **Nova despesa**: foto/texto/manual → marca **quem consumiu** cada item e **quem pagou** → salva.
+4. **Saldo**: o grupo mostra quem deve e quem tem a receber.
+5. **Acertar**: o app sugere as transferências mínimas; toque em **Pix** pra ver o copia-e-cola + QR com o valor exato e marque como pago.
+
+### Testar a lógica
+
+```bash
+node test/run.mjs    # rateio, simplificação de dívidas, Pix (CRC16), parser
+```
+
 ## Arquivos
 
 | Arquivo | O quê |
 |---|---|
-| `index.html` | O app inteiro (UI + lógica de divisão + parser de texto + chamada de foto) |
-| `sw.js` | Service worker (cache `racha-vN`, offline) |
-| `manifest.json` · `icon.svg` | PWA instalável |
+| `index.html` · `sw.js` · `manifest.json` | App simples de 1 aparelho (calculadora de uma conta) |
+| `icon.svg` | Ícone PWA (compartilhado) |
+| `grupos/index.html` | Shell do app multiusuário (UI) |
+| `grupos/js/*.js` | Módulos ES: `split` (rateio), `ledger` (saldo + simplificação), `pix` (BR Code), `parse`, `money`, `ocr`, `db` (Supabase), `app` (controlador) |
+| `grupos/sw.js` · `grupos/manifest.json` | PWA do app de grupos |
+| `supabase/migrations/0001_init.sql` | Esquema + RLS + RPCs do livro-razão |
 | `supabase/functions/ocr/index.ts` | Proxy de OCR (Claude vision) — só pra foto |
+| `test/run.mjs` | Testes dos módulos puros (sem dependências) |
 
 ## Roadmap
 
-- [ ] PIX por pessoa (copia-e-cola + QR com o valor da parte de cada um)
-- [ ] Mesa compartilhada por link (cada um marca os próprios itens em tempo real)
-- [ ] Histórico de rachas
+Feito no `grupos/` (precisa configurar o Supabase):
+- [x] Login + grupos + histórico de despesas
+- [x] Quem pagou + saldo acumulado por grupo
+- [x] PIX por pessoa no acerto (copia-e-cola + QR com o valor exato) + simplificação de dívidas
+- [x] Convite por link + membro fantasma
+
+A fazer:
+- [ ] Mesa ao vivo (realtime já habilitado no SQL; falta a UI de cada um marcar o próprio item)
+- [ ] Reivindicar/mesclar membro fantasma direto na lista
+- [ ] Multi-pagador (dois cartões) na mesma despesa
+- [ ] Editar despesa já salva

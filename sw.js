@@ -1,5 +1,5 @@
 // Racha — service worker (cache versionado)
-const CACHE = "racha-v6";
+const CACHE = "racha-v7";
 const ASSETS = ["./", "./index.html", "./manifest.json", "./icon.svg"];
 
 self.addEventListener("install", e => {
@@ -18,6 +18,7 @@ self.addEventListener("fetch", e => {
   if (req.method !== "GET") return;                  // nunca cacheia POST (OCR)
   const url = new URL(req.url);
   if (url.origin !== location.origin) return;        // deixa a função de OCR passar direto pra rede
+  if (url.pathname.includes("/grupos/")) return;     // o app de grupos tem o próprio SW — não interfere
   // network-first para o HTML, cache-first para o resto
   if (req.mode === "navigate") {
     e.respondWith(fetch(req).catch(() => caches.match("./index.html")));

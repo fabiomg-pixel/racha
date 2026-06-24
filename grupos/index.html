@@ -1,0 +1,129 @@
+<!doctype html>
+<html lang="pt-BR">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="theme-color" content="#0f7a52">
+<title>Racha · Grupos</title>
+<link rel="manifest" href="./manifest.json">
+<link rel="icon" href="../icon.svg">
+<style>
+  :root{
+    --bg:#f6f7f5; --card:#fff; --ink:#16201b; --mut:#6b7a72; --line:#e4e8e4;
+    --brand:#0f7a52; --brand2:#15a06a; --brandink:#0a5238;
+    --warn:#b25e00; --warnbg:#fff3e0; --okbg:#e7f6ee; --okink:#0f7a52;
+    --danger:#c0392b; --chip:#eef2ef; --r:14px;
+  }
+  @media (prefers-color-scheme: dark){
+    :root{ --bg:#0e1411; --card:#16201b; --ink:#e7efe9; --mut:#90a097; --line:#26332c;
+           --brand:#19a06a; --brand2:#1cb878; --brandink:#bdeBD2; --chip:#1d2a23; --okbg:#13301f; --warnbg:#32260f; }
+  }
+  *{ box-sizing:border-box; -webkit-tap-highlight-color:transparent }
+  html,body{ margin:0 }
+  body{ background:var(--bg); color:var(--ink); font:16px/1.45 -apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,system-ui,sans-serif;
+        padding-bottom:env(safe-area-inset-bottom) }
+  header{ position:sticky; top:0; z-index:5; background:var(--brand); color:#fff;
+          display:flex; align-items:center; gap:10px; padding:12px 16px; padding-top:calc(12px + env(safe-area-inset-top)) }
+  header .logo{ font-weight:700; font-size:18px; letter-spacing:.2px; flex:1 }
+  header button{ background:rgba(255,255,255,.16); color:#fff; border:0; border-radius:10px; padding:7px 10px; font-size:15px }
+  main{ max-width:640px; margin:0 auto; padding:16px }
+  .card{ background:var(--card); border:1px solid var(--line); border-radius:var(--r); padding:16px; margin-bottom:14px }
+  h2{ font-size:17px; margin:.2em 0 .6em } h3{ font-size:15px; margin:.2em 0 .5em }
+  .mut{ color:var(--mut) } .sm{ font-size:13px } .b{ font-weight:600 }
+  .row{ display:flex; align-items:center; gap:10px } .row.wrap{ flex-wrap:wrap } .grow{ flex:1 }
+  .between{ display:flex; align-items:center; justify-content:space-between; gap:10px }
+  button.btn{ background:var(--brand); color:#fff; border:0; border-radius:11px; padding:12px 14px; font-size:15px; font-weight:600; cursor:pointer }
+  button.btn.sec{ background:var(--chip); color:var(--ink) }
+  button.btn.ghost{ background:transparent; color:var(--brand); padding:8px 4px }
+  button.btn.block{ width:100% } button.btn.sm{ padding:8px 11px; font-size:14px }
+  button.btn[disabled]{ opacity:.5 }
+  a.link{ color:var(--brand); text-decoration:none; cursor:pointer }
+  input,select,textarea{ font:inherit; color:var(--ink); background:var(--card); border:1px solid var(--line); border-radius:10px; padding:11px 12px; width:100% }
+  input:focus,select:focus,textarea:focus{ outline:2px solid var(--brand2); outline-offset:-1px }
+  label.fld{ display:block; margin-bottom:10px } label.fld > span{ display:block; font-size:13px; color:var(--mut); margin-bottom:4px }
+  .grid2{ display:grid; grid-template-columns:1fr 1fr; gap:10px }
+  .grid4{ display:grid; grid-template-columns:1fr 1fr; gap:10px }
+  .chip{ display:inline-flex; align-items:center; gap:6px; background:var(--chip); border:1px solid var(--line); color:var(--ink);
+         padding:6px 11px; border-radius:999px; font-size:14px; cursor:pointer; user-select:none }
+  .chip.on{ background:var(--brand); color:#fff; border-color:var(--brand) }
+  .pill{ display:inline-block; padding:3px 9px; border-radius:999px; font-size:12px; font-weight:600 }
+  .pill.pos{ background:var(--okbg); color:var(--okink) } .pill.neg{ background:var(--warnbg); color:var(--warn) } .pill.zero{ background:var(--chip); color:var(--mut) }
+  .item{ border:1px solid var(--line); border-radius:12px; padding:10px; margin-bottom:10px }
+  .listrow{ display:flex; align-items:center; justify-content:space-between; gap:10px; padding:12px 0; border-bottom:1px solid var(--line) }
+  .listrow:last-child{ border-bottom:0 }
+  .banner{ border-radius:12px; padding:11px 13px; margin-bottom:12px; font-size:14px }
+  .banner.warn{ background:var(--warnbg); color:var(--warn) } .banner.ok{ background:var(--okbg); color:var(--okink) }
+  .fab{ position:sticky; bottom:14px; margin-top:8px }
+  .empty{ text-align:center; color:var(--mut); padding:34px 10px }
+  .av{ width:30px; height:30px; border-radius:50%; display:grid; place-items:center; color:#fff; font-size:13px; font-weight:700; flex:none }
+  dialog{ border:0; border-radius:16px; padding:0; width:min(460px,94vw); background:var(--card); color:var(--ink) }
+  dialog::backdrop{ background:rgba(0,0,0,.45) } .dlg-bd{ padding:18px } .dlg-bd h2{ margin-top:0 }
+  .toast{ position:fixed; left:50%; bottom:26px; transform:translateX(-50%); background:#16201b; color:#fff; padding:11px 16px;
+          border-radius:12px; font-size:14px; max-width:90vw; text-align:center; z-index:60; box-shadow:0 6px 24px rgba(0,0,0,.25) }
+  .pix-box{ background:var(--chip); border-radius:10px; padding:10px; font:13px/1.4 ui-monospace,Menlo,monospace; word-break:break-all }
+  .qr{ display:grid; place-items:center; background:#fff; padding:12px; border-radius:12px; margin:10px auto; width:max-content }
+  .qr svg{ display:block; width:200px; height:200px }
+  /* câmera in-app */
+  #camOverlay{ position:fixed; inset:0; background:#000; z-index:70; display:flex; flex-direction:column }
+  #camOverlay.hide{ display:none } #camVideo{ flex:1; width:100%; object-fit:cover }
+  .cam-bar{ display:flex; align-items:center; justify-content:space-between; padding:18px 26px calc(20px + env(safe-area-inset-bottom)); background:#000 }
+  .cam-bar button{ background:rgba(255,255,255,.16); color:#fff; border:0; width:52px; height:52px; border-radius:50%; font-size:22px }
+  #camShot{ width:70px!important; height:70px!important; background:#fff!important; border:4px solid rgba(255,255,255,.5) }
+  .cam-hint{ color:#fff; text-align:center; padding:14px; font-size:14px; background:linear-gradient(#000,transparent) }
+  .spin{ width:30px; height:30px; border:3px solid var(--line); border-top-color:var(--brand); border-radius:50%; animation:sp 1s linear infinite; margin:0 auto }
+  @keyframes sp{ to{ transform:rotate(360deg) } }
+</style>
+</head>
+<body>
+<header>
+  <div class="logo">Racha</div>
+  <button id="hAcct" title="conta">entrar</button>
+  <button id="hCfg" aria-label="configurações">⚙</button>
+</header>
+<main id="app"><div class="card"><div class="spin"></div></div></main>
+
+<!-- câmera in-app (foto da conta) -->
+<div id="camOverlay" class="hide">
+  <div class="cam-hint">Enquadre a conta e toque no botão</div>
+  <video id="camVideo" playsinline muted></video>
+  <div class="cam-bar">
+    <button id="camCancel" aria-label="cancelar">✕</button>
+    <button id="camShot" aria-label="tirar foto"></button>
+    <button id="camFlip" aria-label="virar câmera">⟲</button>
+  </div>
+</div>
+<input id="camInput" type="file" accept="image/*" capture="environment" hidden>
+<input id="galInput" type="file" accept="image/*" hidden>
+
+<!-- configurações -->
+<dialog id="cfgDlg"><form method="dialog" class="dlg-bd">
+  <h2>Configurações</h2>
+  <h3>Conexão (Supabase)</h3>
+  <p class="sm mut" style="margin-top:0">Crie um projeto grátis em supabase.com, rode o SQL de <code>supabase/migrations/0001_init.sql</code> e cole abaixo a URL e a chave <b>anon</b> (Project Settings → API). A chave anon é pública por design — o RLS protege os dados.</p>
+  <label class="fld"><span>Project URL</span><input id="cfgUrl" placeholder="https://xxxx.supabase.co"></label>
+  <label class="fld"><span>anon public key</span><input id="cfgAnon" placeholder="eyJ..."></label>
+  <h3 style="margin-top:14px">Meu Pix (pra receber acertos)</h3>
+  <label class="fld"><span>Chave Pix</span><input id="cfgPix" placeholder="cpf, e-mail, telefone ou aleatória"></label>
+  <label class="fld"><span>Nome do recebedor</span><input id="cfgPixName" placeholder="como aparece no banco"></label>
+  <h3 style="margin-top:14px">OCR da foto (opcional)</h3>
+  <label class="fld"><span>Chave Anthropic (sk-ant-…)</span><input id="cfgKey" type="password" placeholder="fica só neste aparelho"></label>
+  <label class="fld"><span>Modelo</span><select id="cfgModel">
+    <option value="claude-haiku-4-5-20251001">Haiku 4.5 (barato)</option>
+    <option value="claude-sonnet-4-6">Sonnet 4.6 (cupom difícil)</option>
+  </select></label>
+  <details><summary class="sm mut">Avançado — proxy Supabase</summary>
+    <label class="fld" style="margin-top:8px"><span>URL da função de OCR</span><input id="cfgOcrUrl" placeholder="https://….supabase.co/functions/v1/ocr"></label>
+  </details>
+  <div class="row" style="margin-top:14px">
+    <button class="btn grow" id="cfgSave" value="default">Salvar</button>
+    <button class="btn sec" id="cfgClose" formnovalidate>Fechar</button>
+  </div>
+</form></dialog>
+
+<script src="https://cdn.jsdelivr.net/npm/qrcode-generator@1.4.4/qrcode.js"></script>
+<script type="module" src="./js/app.js"></script>
+<script>
+  if("serviceWorker" in navigator){ window.addEventListener("load", () => navigator.serviceWorker.register("./sw.js").catch(()=>{})); }
+</script>
+</body>
+</html>
