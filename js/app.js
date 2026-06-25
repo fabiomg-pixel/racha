@@ -342,15 +342,14 @@ function renderNeedConfig(err){
 function renderLogin(){
   app.innerHTML = `<div class="card">
     <h2>Entrar nos Grupos</h2>
-    <p class="mut">Coloque seu e-mail; mandamos um <b>código</b> (e um link). Sem senha.</p>
+    <p class="mut">Coloque seu e-mail; mandamos um link de acesso. Sem senha.</p>
     ${INIT_ERR ? `<div class="banner warn">${esc(INIT_ERR)}</div>` : ""}
     <label class="fld"><span>Seu e-mail</span><input id="loginEmail" type="email" inputmode="email" placeholder="voce@email.com" autocomplete="email"></label>
-    <button class="btn block" id="loginBtn">Enviar código de acesso</button>
+    <button class="btn block" id="loginBtn">Enviar acesso por e-mail</button>
     <p class="sm mut" id="loginMsg" style="margin-top:10px"></p>
     <div id="codeBox" style="display:none;margin-top:6px">
-      <label class="fld"><span>Código do e-mail (6 dígitos)</span><input id="loginCode" inputmode="numeric" autocomplete="one-time-code" placeholder="••••••"></label>
-      <button class="btn block" id="codeBtn">Confirmar código</button>
-      <p class="sm mut" style="margin-top:8px">Dica: o código é mais confiável que o link em celular — funciona mesmo abrindo o e-mail em outro app.</p>
+      <label class="fld"><span>Veio um código de 6 dígitos? Digite aqui</span><input id="loginCode" inputmode="numeric" autocomplete="one-time-code" placeholder="••••••"></label>
+      <button class="btn block sec" id="codeBtn">Confirmar código</button>
     </div>
   </div>`;
   let sentEmail = "";
@@ -361,8 +360,8 @@ function renderLogin(){
     if(!(await ensureInit())){ $("#loginMsg").textContent = INIT_ERR || "Não consegui conectar ao Supabase."; $("#loginBtn").disabled = false; return; }
     try{
       await db.sendMagicLink(email); sentEmail = email;
-      $("#loginMsg").innerHTML = `Enviado pra <b>${esc(email)}</b>. Digite o <b>código</b> do e-mail abaixo (ou abra o link).`;
-      $("#codeBox").style.display = "block"; $("#loginCode").focus();
+      $("#loginMsg").innerHTML = `Enviado pra <b>${esc(email)}</b>. Abra o <b>link</b> do e-mail <b>neste mesmo navegador</b>. (Se o e-mail trouxer um código de 6 dígitos, dá pra digitar abaixo.)`;
+      $("#codeBox").style.display = "block";
     }catch(e){ console.error(e); $("#loginMsg").textContent = e?.message || "Não consegui enviar."; }
     finally{ $("#loginBtn").disabled = false; }
   };
