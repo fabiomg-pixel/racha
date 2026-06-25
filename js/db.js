@@ -26,10 +26,24 @@ export function setSbConfig(url, anon){
 }
 export function hasConfig(){ const c = getSbConfig(); return !!(c && c.url && c.anon); }
 
+// CDNs pra carregar a lib do Supabase (ESM). Tenta na ordem; o +esm do jsDelivr vem num
+// arquivo só (sem sub-requisições), mais robusto em redes que filtram domínios.
+const CDNS = [
+  "https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/+esm",
+  "https://esm.sh/@supabase/supabase-js@2",
+  "https://unpkg.com/@supabase/supabase-js@2/dist/module/index.js",
+];
 // Carrega a lib (uma vez) e cria o cliente. Chamar no boot quando houver config.
 export async function init(){
   if(!hasConfig()) return false;
-  if(!_createClient){ const m = await import("https://esm.sh/@supabase/supabase-js@2"); _createClient = m.createClient; }
+  if(!_createClient){
+    let lastErr;
+    for(const url of CDNS){
+      try{ const m = await import(url); _createClient = m.createClient || m.default?.createClient; if(_createClient) break; }
+      catch(e){ lastErr = e; }
+    }
+    if(!_createClient) throw new Error("Não consegui carregar a biblioteca do Supabase — algum CDN pode estar bloqueado na sua rede. " + (lastErr?.message || ""));
+  }
   if(!_client){ const c = getSbConfig(); _client = _createClient(c.url, c.anon, { auth: { persistSession: true, autoRefreshToken: true, detectSessionInUrl: true } }); }
   return true;
 }

@@ -31,7 +31,7 @@ function toast(msg, ms = 2600){
 function loading(msg = "Carregando…"){ app.innerHTML = `<div class="card" style="text-align:center"><div class="spin"></div><p class="mut sm">${esc(msg)}</p></div>`; }
 async function guard(fn, msg){ try{ return await fn(); }catch(e){ console.error(e); toast(msg || (e?.message || "Algo deu errado"), 4500); throw e; } }
 
-let ME = null, PROFILE = null;
+let ME = null, PROFILE = null, INIT_ERR = null;
 let ITEM_SINK = null;   // pra onde foto/texto mandam os itens lidos (definido por cada aba)
 
 /* ============================ boot ============================ */
@@ -48,9 +48,15 @@ async function boot(){
         if(ME && pending && location.hash.indexOf("join") < 0){ sessionStorage.removeItem("racha.join"); return go("join/" + pending); }
         route();
       });
-    }catch(e){ console.error("supabase init falhou", e); }   // não derruba a aba Racha
+    }catch(e){ console.error("supabase init falhou", e); INIT_ERR = e?.message || String(e); }   // não derruba a aba Racha
   }
   paintAcct(); route();
+}
+// tenta (re)inicializar o cliente; usado no login pra dar o motivo real se falhar
+async function ensureInit(){
+  if(!db.hasConfig()) return false;
+  try{ await db.init(); INIT_ERR = null; return true; }
+  catch(e){ INIT_ERR = e?.message || String(e); return false; }
 }
 window.addEventListener("hashchange", route);
 
@@ -321,6 +327,7 @@ function renderLogin(){
   app.innerHTML = `<div class="card">
     <h2>Entrar nos Grupos</h2>
     <p class="mut">Mandamos um link mágico pro seu e-mail. Sem senha.</p>
+    ${INIT_ERR ? `<div class="banner warn">${esc(INIT_ERR)}</div>` : ""}
     <label class="fld"><span>Seu e-mail</span><input id="loginEmail" type="email" inputmode="email" placeholder="voce@email.com" autocomplete="email"></label>
     <button class="btn block" id="loginBtn">Enviar link de acesso</button>
     <p class="sm mut" id="loginMsg" style="margin-top:10px"></p>
@@ -329,6 +336,7 @@ function renderLogin(){
     const email = $("#loginEmail").value.trim();
     if(!/.+@.+\..+/.test(email)){ toast("E-mail inválido"); return; }
     $("#loginBtn").disabled = true; $("#loginMsg").textContent = "Enviando…";
+    if(!(await ensureInit())){ $("#loginMsg").textContent = INIT_ERR || "Não consegui conectar ao Supabase."; $("#loginBtn").disabled = false; return; }
     try{ await db.sendMagicLink(email); $("#loginMsg").innerHTML = `Pronto! Abra o link que enviamos pra <b>${esc(email)}</b> neste aparelho.`; }
     catch(e){ console.error(e); $("#loginMsg").textContent = e?.message || "Não consegui enviar."; $("#loginBtn").disabled = false; }
   };
