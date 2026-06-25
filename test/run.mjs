@@ -5,6 +5,7 @@ import { simplifyDebts, directDebts } from "../js/ledger.js";
 import { buildPixPayload, validatePix, crc16 } from "../js/pix.js";
 import { parseBill } from "../js/parse.js";
 import { parseMoney } from "../js/money.js";
+import { normalizeSupabaseUrl } from "../js/db.js";
 
 let pass = 0;
 const ok = (name, fn) => { fn(); pass++; console.log("  ok —", name); };
@@ -100,6 +101,17 @@ ok("parseBill lê itens, subtotal, serviço e total", () => {
   assert.equal(r.subtotal, 119.90);
   assert.equal(r.service.rate, 10);
   assert.equal(r.total, 131.89);
+});
+
+console.log("db.js");
+ok("normalizeSupabaseUrl conserta os erros comuns", () => {
+  const good = "https://abcdefghijklmnop.supabase.co";
+  assert.equal(normalizeSupabaseUrl(good), good);
+  assert.equal(normalizeSupabaseUrl(good + "/"), good);                                  // barra no fim
+  assert.equal(normalizeSupabaseUrl("abcdefghijklmnop.supabase.co"), good);             // sem https
+  assert.equal(normalizeSupabaseUrl("abcdefghijklmnop"), good);                          // só o ref
+  assert.equal(normalizeSupabaseUrl("https://supabase.com/dashboard/project/abcdefghijklmnop"), good); // URL do painel
+  assert.equal(normalizeSupabaseUrl("https://supabase.com/dashboard/project/abcdefghijklmnop/auth/users"), good);
 });
 
 console.log(`\n${pass} testes passaram ✓`);

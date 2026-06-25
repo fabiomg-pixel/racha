@@ -727,13 +727,15 @@ function wireConfig(){
     localStorage.setItem("racha.ocrModel", $("#cfgModel").value);
     if(ocrUrl) localStorage.setItem("racha.ocrUrl", ocrUrl); else localStorage.removeItem("racha.ocrUrl");
 
-    const hadConfig = db.hasConfig();
+    const prev = db.getSbConfig();
     if(url && anon) db.setSbConfig(url, anon);
+    const now = db.getSbConfig();
+    const sbChanged = !!(url && anon && now && (!prev || prev.url !== now.url || prev.anon !== now.anon));
     const pixKey = $("#cfgPix").value.trim(), pixName = $("#cfgPixName").value.trim();
     if(ME && (pixKey || pixName)){ try{ PROFILE = await db.saveProfile({ pix_key: pixKey || null, pix_name: pixName || null }); }catch(e){ console.error(e); } }
 
     $("#cfgDlg").close(); toast("Salvo ✓");
-    if(!hadConfig && url && anon){ location.reload(); return; }   // 1ª config: recarrega pra subir o cliente
+    if(sbChanged){ location.reload(); return; }   // (re)conecta com a URL/chave nova
     if(ME){ PROFILE = await db.getMyProfile(); paintAcct(); }
     route();
   };

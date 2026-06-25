@@ -9,8 +9,18 @@ let _client = null, _createClient = null;
 export function getSbConfig(){
   try{ return JSON.parse(localStorage.getItem(CFG_KEY)) || null; }catch(_){ return null; }
 }
+// Conserta os erros comuns: URL do painel colada em vez da API, só o ref, ou barra no fim.
+export function normalizeSupabaseUrl(raw){
+  let u = String(raw || "").trim();
+  if(!u) return "";
+  const dash = u.match(/dashboard\/project\/([a-z0-9]{16,})/i);   // colou a URL do painel
+  if(dash) return `https://${dash[1]}.supabase.co`;
+  if(/^[a-z0-9]{16,}$/i.test(u)) return `https://${u}.supabase.co`; // colou só o ref do projeto
+  if(!/^https?:\/\//i.test(u)) u = "https://" + u;
+  return u.replace(/\/+$/, "");                                    // tira barra(s) no fim
+}
 export function setSbConfig(url, anon){
-  localStorage.setItem(CFG_KEY, JSON.stringify({ url: String(url).trim(), anon: String(anon).trim() }));
+  localStorage.setItem(CFG_KEY, JSON.stringify({ url: normalizeSupabaseUrl(url), anon: String(anon).trim() }));
   _client = null;
 }
 export function hasConfig(){ const c = getSbConfig(); return !!(c && c.url && c.anon); }
