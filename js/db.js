@@ -17,7 +17,8 @@ export function normalizeSupabaseUrl(raw){
   if(dash) return `https://${dash[1]}.supabase.co`;
   if(/^[a-z0-9]{16,}$/i.test(u)) return `https://${u}.supabase.co`; // colou só o ref do projeto
   if(!/^https?:\/\//i.test(u)) u = "https://" + u;
-  return u.replace(/\/+$/, "");                                    // tira barra(s) no fim
+  const origin = u.match(/^https?:\/\/[^/]+/i);                    // só esquema + host (corta /rest/v1, barras, etc.)
+  return origin ? origin[0] : u.replace(/\/+$/, "");
 }
 export function setSbConfig(url, anon){
   localStorage.setItem(CFG_KEY, JSON.stringify({ url: normalizeSupabaseUrl(url), anon: String(anon).trim() }));

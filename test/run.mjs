@@ -112,6 +112,8 @@ ok("normalizeSupabaseUrl conserta os erros comuns", () => {
   assert.equal(normalizeSupabaseUrl("abcdefghijklmnop"), good);                          // só o ref
   assert.equal(normalizeSupabaseUrl("https://supabase.com/dashboard/project/abcdefghijklmnop"), good); // URL do painel
   assert.equal(normalizeSupabaseUrl("https://supabase.com/dashboard/project/abcdefghijklmnop/auth/users"), good);
+  assert.equal(normalizeSupabaseUrl(good + "/rest/v1/"), good);                           // colou o endpoint REST
+  assert.equal(normalizeSupabaseUrl(good + "/auth/v1"), good);
 });
 
 console.log(`\n${pass} testes passaram ✓`);
