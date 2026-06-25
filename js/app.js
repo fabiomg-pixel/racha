@@ -339,6 +339,16 @@ function renderNeedConfig(err){
   </div>`;
   $("#ncOpen").onclick = openCfg;
 }
+function authError(e){
+  let s = (e && typeof e.message === "string") ? e.message : "";
+  if(s === "{}") s = "";
+  const low = s.toLowerCase();
+  const status = e?.status || e?.statusCode || e?.code;
+  if(/rate limit|too many|429/.test(low) || status === 429) return "Muitos pedidos seguidos. Espere ~1 min e tente de novo.";
+  if(/sending|smtp|magic link email|confirmation email/.test(low) || status === 500 || status === 502 || status === 504 || !s)
+    return "O Supabase não conseguiu ENVIAR o e-mail — quase sempre é o SMTP recusando. Veja Logs → Auth (erro 535 = senha de app errada). Pra logar já: desligue o 'custom SMTP' e use o link.";
+  return s;
+}
 function renderLogin(){
   app.innerHTML = `<div class="card">
     <h2>Entrar nos Grupos</h2>
@@ -362,7 +372,7 @@ function renderLogin(){
       await db.sendMagicLink(email); sentEmail = email;
       $("#loginMsg").innerHTML = `Enviado pra <b>${esc(email)}</b>. Abra o <b>link</b> do e-mail <b>neste mesmo navegador</b>. (Se o e-mail trouxer um código de 6 dígitos, dá pra digitar abaixo.)`;
       $("#codeBox").style.display = "block";
-    }catch(e){ console.error(e); $("#loginMsg").textContent = e?.message || "Não consegui enviar."; }
+    }catch(e){ console.error(e); $("#loginMsg").textContent = authError(e); }
     finally{ $("#loginBtn").disabled = false; }
   };
   const verify = async () => {
