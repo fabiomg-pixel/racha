@@ -44,7 +44,9 @@ export async function init(){
     }
     if(!_createClient) throw new Error("Não consegui carregar a biblioteca do Supabase — algum CDN pode estar bloqueado na sua rede. " + (lastErr?.message || ""));
   }
-  if(!_client){ const c = getSbConfig(); _client = _createClient(c.url, c.anon, { auth: { persistSession: true, autoRefreshToken: true, detectSessionInUrl: true } }); }
+  // flowType 'implicit': o token volta no próprio link de retorno — funciona quando o e-mail
+  // abre em outro navegador/dispositivo (PKCE exigiria o mesmo navegador que pediu o link).
+  if(!_client){ const c = getSbConfig(); _client = _createClient(c.url, c.anon, { auth: { persistSession: true, autoRefreshToken: true, detectSessionInUrl: true, flowType: "implicit" } }); }
   return true;
 }
 
@@ -66,6 +68,10 @@ export function onAuthChange(cb){
 export async function sendMagicLink(email){
   const redirect = location.origin + location.pathname;   // volta pra esta página
   return unwrap(await sb().auth.signInWithOtp({ email: email.trim(), options: { emailRedirectTo: redirect } }));
+}
+// alternativa à prova de PWA: o usuário digita o código de 6 dígitos que veio no e-mail
+export async function verifyCode(email, token){
+  return unwrap(await sb().auth.verifyOtp({ email: email.trim(), token: String(token).trim(), type: "email" }));
 }
 export async function signOut(){ await sb().auth.signOut(); }
 

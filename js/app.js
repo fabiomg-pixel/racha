@@ -342,22 +342,41 @@ function renderNeedConfig(err){
 function renderLogin(){
   app.innerHTML = `<div class="card">
     <h2>Entrar nos Grupos</h2>
-    <p class="mut">Mandamos um link mágico pro seu e-mail. Sem senha.</p>
+    <p class="mut">Coloque seu e-mail; mandamos um <b>código</b> (e um link). Sem senha.</p>
     ${INIT_ERR ? `<div class="banner warn">${esc(INIT_ERR)}</div>` : ""}
     <label class="fld"><span>Seu e-mail</span><input id="loginEmail" type="email" inputmode="email" placeholder="voce@email.com" autocomplete="email"></label>
-    <button class="btn block" id="loginBtn">Enviar link de acesso</button>
+    <button class="btn block" id="loginBtn">Enviar código de acesso</button>
     <p class="sm mut" id="loginMsg" style="margin-top:10px"></p>
+    <div id="codeBox" style="display:none;margin-top:6px">
+      <label class="fld"><span>Código do e-mail (6 dígitos)</span><input id="loginCode" inputmode="numeric" autocomplete="one-time-code" placeholder="••••••"></label>
+      <button class="btn block" id="codeBtn">Confirmar código</button>
+      <p class="sm mut" style="margin-top:8px">Dica: o código é mais confiável que o link em celular — funciona mesmo abrindo o e-mail em outro app.</p>
+    </div>
   </div>`;
+  let sentEmail = "";
   const send = async () => {
     const email = $("#loginEmail").value.trim();
     if(!/.+@.+\..+/.test(email)){ toast("E-mail inválido"); return; }
     $("#loginBtn").disabled = true; $("#loginMsg").textContent = "Enviando…";
     if(!(await ensureInit())){ $("#loginMsg").textContent = INIT_ERR || "Não consegui conectar ao Supabase."; $("#loginBtn").disabled = false; return; }
-    try{ await db.sendMagicLink(email); $("#loginMsg").innerHTML = `Pronto! Abra o link que enviamos pra <b>${esc(email)}</b> neste aparelho.`; }
-    catch(e){ console.error(e); $("#loginMsg").textContent = e?.message || "Não consegui enviar."; $("#loginBtn").disabled = false; }
+    try{
+      await db.sendMagicLink(email); sentEmail = email;
+      $("#loginMsg").innerHTML = `Enviado pra <b>${esc(email)}</b>. Digite o <b>código</b> do e-mail abaixo (ou abra o link).`;
+      $("#codeBox").style.display = "block"; $("#loginCode").focus();
+    }catch(e){ console.error(e); $("#loginMsg").textContent = e?.message || "Não consegui enviar."; }
+    finally{ $("#loginBtn").disabled = false; }
+  };
+  const verify = async () => {
+    const code = $("#loginCode").value.replace(/\D/g, "");
+    if(code.length < 6){ toast("Digite os 6 dígitos"); return; }
+    $("#codeBtn").disabled = true; $("#loginMsg").textContent = "Conferindo…";
+    try{ await db.verifyCode(sentEmail || $("#loginEmail").value, code); /* onAuthChange cuida do redirecionamento */ }
+    catch(e){ console.error(e); $("#loginMsg").textContent = "Código inválido ou expirado. Peça outro."; $("#codeBtn").disabled = false; }
   };
   $("#loginBtn").onclick = send;
   $("#loginEmail").addEventListener("keydown", e => { if(e.key === "Enter") send(); });
+  $("#codeBtn").onclick = verify;
+  $("#loginCode").addEventListener("keydown", e => { if(e.key === "Enter") verify(); });
 }
 
 async function renderGroups(){
