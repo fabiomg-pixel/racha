@@ -35,8 +35,23 @@ let ME = null, PROFILE = null, INIT_ERR = null;
 let ITEM_SINK = null;   // pra onde foto/texto mandam os itens lidos (definido por cada aba)
 
 /* ============================ boot ============================ */
+// Convite "pronto pra usar": o link carrega a conexão (URL + chave anon pública).
+// Quem abre adota a config automaticamente e só precisa fazer login — nada de ⚙.
+function adoptConfigFromLink(){
+  const q = new URLSearchParams(location.search);
+  const s = q.get("s"), k = q.get("k");
+  if(s && k){
+    try{ db.setSbConfig(s, k); }catch(_){}
+    q.delete("s"); q.delete("k");
+    const qs = q.toString();
+    history.replaceState(null, "", location.pathname + (qs ? "?" + qs : "") + location.hash);
+    return true;
+  }
+  return false;
+}
 async function boot(){
   wireHeader(); wireTabs(); wireConfig(); wireCamera();
+  adoptConfigFromLink();
   if(db.hasConfig()){
     try{
       await db.init();
@@ -311,7 +326,8 @@ async function pushCalcToGroup(groupId, payerPersonId, description, r){
 function renderNeedConfig(err){
   app.innerHTML = `<div class="card">
     <h2>Ative os Grupos</h2>
-    <p class="mut">A aba <b>Racha</b> funciona sozinha. Pra <b>guardar quem deve quem</b> ao longo do tempo e acertar por Pix, conecte um back-end grátis (Supabase), uma vez:</p>
+    <div class="banner ok">Te convidaram pra um grupo? Abra o <b>link de convite</b> que te mandaram — ele já vem configurado, é só fazer login.</div>
+    <p class="mut">Pra <b>criar</b> seus próprios grupos e guardar quem deve quem, conecte um back-end grátis (Supabase) uma vez (depois, quem você convidar não precisa fazer nada disso):</p>
     <ol class="sm mut" style="padding-left:18px">
       <li>Crie um projeto em <b>supabase.com</b>.</li>
       <li>No SQL Editor, rode <code>supabase/migrations/0001_init.sql</code>.</li>
@@ -402,9 +418,15 @@ async function renderGroup(groupId){
   app.querySelectorAll("[data-exp]").forEach(r => r.onclick = () => expenseDialog(r.dataset.exp, groupId));
 }
 
+function inviteLink(groupId){
+  const cfg = db.getSbConfig();
+  const base = location.origin + location.pathname;
+  const q = cfg ? `?s=${encodeURIComponent(cfg.url)}&k=${encodeURIComponent(cfg.anon)}` : "";
+  return base + q + "#join/" + groupId;   // o link já leva a conexão: o convidado só faz login
+}
 async function membersDialog(groupId, members){
   const dlg = document.createElement("dialog");
-  const link = location.origin + location.pathname + "#join/" + groupId;
+  const link = inviteLink(groupId);
   dlg.innerHTML = `<div class="dlg-bd">
     <h2>Membros</h2>
     <div>${members.map(m => `<div class="listrow"><div class="row">${avatar(m.display_name)}<span>${esc(m.display_name)}</span>${m.user_id?"":'<span class="pill zero">fantasma</span>'}</div>${m.user_id===ME?.id?"":`<a class="link" data-del="${m.id}">remover</a>`}</div>`).join("")}</div>
