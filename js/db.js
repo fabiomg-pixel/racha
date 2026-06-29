@@ -9,7 +9,10 @@ let _client = null, _createClient = null;
 // Config embutida (opcional): se preenchida, TODO navegador já abre conectado — ninguém vê
 // "Ative os Grupos" nem configura nada. A chave anon é pública por design (o RLS protege os
 // dados; ela já vai nos links de convite). Deixe vazio pra exigir config manual.
-const BAKED = { url: "", anon: "" };
+const BAKED = {
+  url: "https://hqiotsgwxpsmuujaciwn.supabase.co",
+  anon: "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImhxaW90c2d3eHBzbXV1amFjaXduIiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODIzMzQ3MTYsImV4cCI6MjA5NzkxMDcxNn0.n6I6Av5OR_ezSgBfkmDmKw3o-PlKR-dkH4qwrFYidE0",
+};
 export function getSbConfig(){
   try{ const c = JSON.parse(localStorage.getItem(CFG_KEY)); if(c && c.url && c.anon) return c; }catch(_){}
   return (BAKED.url && BAKED.anon) ? { url: BAKED.url, anon: BAKED.anon } : null;
