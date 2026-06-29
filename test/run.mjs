@@ -40,6 +40,19 @@ ok("centavos quebrados reconciliados (10 / 3)", () => {
   assert.deepEqual(vals, [333, 333, 334]);
 });
 
+console.log("split.js — modo 'Igual' da despesa (reusa computeShares)");
+ok("igual entre um subconjunto: 100 entre 2 de 3 (terceiro fica em 0)", () => {
+  const r = computeShares(["a", "b", "c"], [{ qty: 1, unitPrice: 100, consumers: ["a", "b"] }], {});
+  assert.equal(r.total, 100);
+  assert.equal(sumCents(r.shares), 10000);
+  assert.equal(r.shares.a, 50); assert.equal(r.shares.b, 50); assert.equal(r.shares.c, 0);
+});
+ok("igual com centavo quebrado: 100 entre 3 soma exato", () => {
+  const r = computeShares(["a", "b", "c"], [{ qty: 1, unitPrice: 100, consumers: ["a", "b", "c"] }], {});
+  assert.equal(sumCents(r.shares), 10000);
+  assert.deepEqual(Object.values(r.shares).map(v => Math.round(v * 100)).sort((x, y) => x - y), [3333, 3333, 3334]);
+});
+
 console.log("ledger.js");
 ok("simplifyDebts zera todos os saldos", () => {
   const net = { a: -20, b: -10, c: 25, d: 5 };

@@ -508,24 +508,50 @@ async function renderNewExpense(groupId){
   if(MEMBERS.length === 0){ toast("Adicione membros ao grupo primeiro"); return renderGroup(groupId); }
   const allIds = MEMBERS.map(m => m.id);
   const meMember = MEMBERS.find(m => m.user_id === ME?.id);
-  DRAFT = { groupId, description: "", place: "", spent_at: todayISO(), items: [], payer: (meMember || MEMBERS[0]).id,
-            serviceOn: false, serviceRate: 0.10, couvert: 0, discount: 0, billTotal: null, allIds };
+  DRAFT = { groupId, description: "", place: "", spent_at: todayISO(), payer: (meMember || MEMBERS[0]).id,
+            mode: "equal", total: 0, among: [...allIds], exact: {},
+            items: [], serviceOn: false, serviceRate: 0.10, couvert: 0, discount: 0, billTotal: null, allIds };
   paintNewExpense();
 }
 function paintNewExpense(){
   const d = DRAFT;
   ITEM_SINK = applyToDraft;
   const memChips = ids => MEMBERS.map(m => `<span class="chip ${ids.includes(m.id)?"on":""}" data-mid="${m.id}">${esc(m.display_name)}</span>`).join("");
-  const itemsHtml = d.items.map((it, i) => `
-    <div class="item" data-i="${i}">
-      <div class="row" style="gap:8px">
-        <input data-f="name" value="${esc(it.name)}" placeholder="item" class="grow">
-        <input data-f="qty" type="number" inputmode="decimal" value="${it.qty}" min="0" step="1" style="width:58px">
-        <input data-f="unitPrice" type="number" inputmode="decimal" value="${it.unitPrice}" min="0" step="0.01" style="width:82px">
-        <button class="btn ghost" data-rm="${i}" aria-label="remover">✕</button>
+  const modeTab = (key, label) => `<span class="chip ${d.mode===key?"on":""}" data-mode="${key}">${label}</span>`;
+
+  let panel = "";
+  if(d.mode === "equal"){
+    panel = `
+      <label class="fld"><span>Valor total (R$)</span><input id="neTotal" type="number" inputmode="decimal" value="${d.total||""}" step="0.01" placeholder="0,00"></label>
+      <div class="sm mut" style="margin:8px 0 4px">Dividir igual entre — toque pra incluir/tirar:</div>
+      <div class="row wrap" style="gap:6px">${MEMBERS.map(m => `<span class="chip ${d.among.includes(m.id)?"on":""}" data-among="${m.id}">${esc(m.display_name)}</span>`).join("")}</div>`;
+  } else if(d.mode === "exact"){
+    panel = `<div class="sm mut" style="margin-bottom:8px">Quanto cada um deve (deixe em branco quem não entra):</div>
+      ${MEMBERS.map(m => `<label class="fld"><span>${esc(m.display_name)}</span><input data-exact="${m.id}" type="number" inputmode="decimal" value="${d.exact[m.id] ?? ""}" step="0.01" placeholder="0,00"></label>`).join("")}`;
+  } else {
+    const itemsHtml = d.items.map((it, i) => `
+      <div class="item" data-i="${i}">
+        <div class="row" style="gap:8px">
+          <input data-f="name" value="${esc(it.name)}" placeholder="item" class="grow">
+          <input data-f="qty" type="number" inputmode="decimal" value="${it.qty}" min="0" step="1" style="width:58px">
+          <input data-f="unitPrice" type="number" inputmode="decimal" value="${it.unitPrice}" min="0" step="0.01" style="width:82px">
+          <button class="btn ghost" data-rm="${i}" aria-label="remover">✕</button>
+        </div>
+        <div class="row wrap" style="margin-top:8px;gap:6px">${memChips(it.consumers)}</div>
+      </div>`).join("");
+    panel = `
+      <div class="grid4" style="margin-bottom:10px">
+        <button class="btn sec sm" id="neCam">📷 Foto</button><button class="btn sec sm" id="neGal">🖼️ Galeria</button>
+        <button class="btn sec sm" id="neText">📝 Texto</button><button class="btn sec sm" id="neManual">＋ Manual</button>
       </div>
-      <div class="row wrap" style="margin-top:8px;gap:6px">${memChips(it.consumers)}</div>
-    </div>`).join("");
+      <div id="neItems">${itemsHtml || '<p class="sm mut">Adicione itens por foto, texto ou manual; marque quem dividiu cada um.</p>'}</div>
+      <div class="grid2" style="margin-top:12px">
+        <label class="fld"><span>Serviço</span><div class="row"><input id="neSvc" type="number" inputmode="decimal" value="${Math.round(d.serviceRate*100)}" step="1" style="width:70px" ${d.serviceOn?"":"disabled"}><span class="mut">%</span><span class="chip ${d.serviceOn?"on":""}" id="neSvcOn">${d.serviceOn?"incluso":"sem"}</span></div></label>
+        <label class="fld"><span>Couvert (total)</span><input id="neCouvert" type="number" inputmode="decimal" value="${d.couvert}" step="0.01"></label>
+      </div>
+      <label class="fld"><span>Desconto (total)</span><input id="neDisc" type="number" inputmode="decimal" value="${d.discount}" step="0.01"></label>`;
+  }
+
   app.innerHTML = `
     <div class="card">
       <div class="between"><a class="link" id="neBack">← grupo</a><span class="mut sm">nova despesa</span></div>
@@ -536,75 +562,95 @@ function paintNewExpense(){
       </div>
     </div>
     <div class="card">
-      <h3>Itens</h3>
-      <div class="grid4" style="margin-bottom:10px">
-        <button class="btn sec sm" id="neCam">📷 Foto</button><button class="btn sec sm" id="neGal">🖼️ Galeria</button>
-        <button class="btn sec sm" id="neText">📝 Texto</button><button class="btn sec sm" id="neManual">＋ Manual</button>
-      </div>
-      <div id="neItems">${itemsHtml || '<p class="sm mut">Adicione itens por foto, texto ou manual.</p>'}</div>
-    </div>
-    <div class="card">
       <h3>Quem pagou</h3>
       <select id="nePayer">${MEMBERS.map(m => `<option value="${m.id}" ${m.id===d.payer?"selected":""}>${esc(m.display_name)}</option>`).join("")}</select>
-      <div class="grid2" style="margin-top:12px">
-        <label class="fld"><span>Serviço</span><div class="row"><input id="neSvc" type="number" inputmode="decimal" value="${Math.round(d.serviceRate*100)}" step="1" style="width:70px" ${d.serviceOn?"":"disabled"}><span class="mut">%</span><span class="chip ${d.serviceOn?"on":""}" id="neSvcOn">${d.serviceOn?"incluso":"sem"}</span></div></label>
-        <label class="fld"><span>Couvert (total)</span><input id="neCouvert" type="number" inputmode="decimal" value="${d.couvert}" step="0.01"></label>
-      </div>
-      <label class="fld"><span>Desconto (total)</span><input id="neDisc" type="number" inputmode="decimal" value="${d.discount}" step="0.01"></label>
+    </div>
+    <div class="card">
+      <h3>Como dividir</h3>
+      <div class="row wrap" style="gap:6px;margin-bottom:12px">${modeTab("equal","Igual")}${modeTab("items","Por item")}${modeTab("exact","Valores")}</div>
+      ${panel}
     </div>
     <div class="card" id="nePreview"></div>
     <button class="btn block fab" id="neSave">Salvar despesa</button>`;
+
   $("#neDesc").oninput = e => d.description = e.target.value;
   $("#nePlace").oninput = e => d.place = e.target.value;
   $("#neDate").oninput = e => d.spent_at = e.target.value;
   $("#nePayer").onchange = e => d.payer = e.target.value;
-  $("#neCouvert").oninput = e => { d.couvert = parseMoney(e.target.value); refreshPreview(); };
-  $("#neDisc").oninput = e => { d.discount = parseMoney(e.target.value); refreshPreview(); };
-  $("#neSvc").oninput = e => { d.serviceRate = (parseFloat(e.target.value)||0)/100; refreshPreview(); };
-  $("#neSvcOn").onclick = () => { d.serviceOn = !d.serviceOn; paintNewExpense(); };
   $("#neBack").onclick = () => go(`g/${d.groupId}`);
-  $("#neManual").onclick = () => { d.items.push({ name:"", qty:1, unitPrice:0, consumers:[...d.allIds] }); paintNewExpense(); };
-  $("#neText").onclick = textDialog;
-  $("#neGal").onclick = () => wantPhoto("gal");
-  $("#neCam").onclick = () => wantPhoto("cam");
-  $("#neItems").querySelectorAll(".item").forEach(node => {
-    const i = +node.dataset.i;
-    node.querySelectorAll("[data-f]").forEach(inp => inp.oninput = e => { const f = inp.dataset.f; d.items[i][f] = f === "name" ? e.target.value : parseMoney(e.target.value); refreshPreview(); });
-    node.querySelector("[data-rm]").onclick = () => { d.items.splice(i, 1); paintNewExpense(); };
-    node.querySelectorAll("[data-mid]").forEach(ch => ch.onclick = () => { const id = ch.dataset.mid, a = d.items[i].consumers, k = a.indexOf(id); if(k>=0) a.splice(k,1); else a.push(id); ch.classList.toggle("on"); refreshPreview(); });
-  });
   $("#neSave").onclick = saveExpense;
+  app.querySelectorAll("[data-mode]").forEach(el => el.onclick = () => { d.mode = el.dataset.mode; paintNewExpense(); });
+
+  if(d.mode === "equal"){
+    $("#neTotal").oninput = e => { d.total = parseMoney(e.target.value); refreshPreview(); };
+    app.querySelectorAll("[data-among]").forEach(ch => ch.onclick = () => { const id = ch.dataset.among, a = d.among, k = a.indexOf(id); if(k>=0) a.splice(k,1); else a.push(id); ch.classList.toggle("on"); refreshPreview(); });
+  } else if(d.mode === "exact"){
+    app.querySelectorAll("[data-exact]").forEach(inp => inp.oninput = e => { d.exact[inp.dataset.exact] = parseMoney(e.target.value); refreshPreview(); });
+  } else {
+    $("#neCouvert").oninput = e => { d.couvert = parseMoney(e.target.value); refreshPreview(); };
+    $("#neDisc").oninput = e => { d.discount = parseMoney(e.target.value); refreshPreview(); };
+    $("#neSvc").oninput = e => { d.serviceRate = (parseFloat(e.target.value)||0)/100; refreshPreview(); };
+    $("#neSvcOn").onclick = () => { d.serviceOn = !d.serviceOn; paintNewExpense(); };
+    $("#neManual").onclick = () => { d.items.push({ name:"", qty:1, unitPrice:0, consumers:[...d.allIds] }); paintNewExpense(); };
+    $("#neText").onclick = textDialog;
+    $("#neGal").onclick = () => wantPhoto("gal");
+    $("#neCam").onclick = () => wantPhoto("cam");
+    $("#neItems").querySelectorAll(".item").forEach(node => {
+      const i = +node.dataset.i;
+      node.querySelectorAll("[data-f]").forEach(inp => inp.oninput = e => { const f = inp.dataset.f; d.items[i][f] = f === "name" ? e.target.value : parseMoney(e.target.value); refreshPreview(); });
+      node.querySelector("[data-rm]").onclick = () => { d.items.splice(i, 1); paintNewExpense(); };
+      node.querySelectorAll("[data-mid]").forEach(ch => ch.onclick = () => { const id = ch.dataset.mid, a = d.items[i].consumers, k = a.indexOf(id); if(k>=0) a.splice(k,1); else a.push(id); ch.classList.toggle("on"); refreshPreview(); });
+    });
+  }
   refreshPreview();
 }
 function draftSplit(){
   const d = DRAFT;
+  if(d.mode === "equal"){
+    const T = Number(d.total) || 0;
+    const among = d.among.filter(id => d.allIds.includes(id));
+    if(T <= 0 || !among.length){ return { shares: Object.fromEntries(d.allIds.map(id => [id, 0])), subtotal: T>0?T:0, total: T>0?T:0, serviceAmount: 0 }; }
+    return computeShares(d.allIds, [{ qty: 1, unitPrice: T, consumers: among }], {});   // reusa o reconciliador de centavos
+  }
+  if(d.mode === "exact"){
+    const shares = {}; let total = 0;
+    d.allIds.forEach(id => { const v = Number(d.exact[id]) || 0; shares[id] = v; total += v; });
+    return { shares, subtotal: round2(total), total: round2(total), serviceAmount: 0 };
+  }
   const items = d.items.filter(it => (Number(it.qty)||0) > 0 && (Number(it.unitPrice)||0) > 0).map(it => ({ qty: it.qty, unitPrice: it.unitPrice, consumers: it.consumers }));
   return computeShares(d.allIds, items, { serviceRate: d.serviceOn ? d.serviceRate : 0, couvert: d.couvert, discount: d.discount });
 }
 function refreshPreview(){
   const d = DRAFT, r = draftSplit();
   const nameOf = id => MEMBERS.find(m => m.id === id)?.display_name || "?";
-  const rows = d.allIds.map(id => `<div class="listrow"><span>${esc(nameOf(id))}</span><span class="b">${brl(r.shares[id]||0)}</span></div>`).join("");
+  const owing = d.allIds.filter(id => Math.abs(r.shares[id]||0) > 0.0001);
+  const rows = (owing.length ? owing : d.allIds).map(id => `<div class="listrow"><span>${esc(nameOf(id))}</span><span class="b">${brl(r.shares[id]||0)}</span></div>`).join("");
   let check = "";
-  if(d.billTotal != null && Math.abs(d.billTotal - r.total) > 0.05) check = `<div class="banner warn">Os itens somam ${brl(r.total)}, mas a conta diz ${brl(d.billTotal)} — confira se faltou ou repetiu item.</div>`;
-  else if(d.billTotal != null) check = `<div class="banner ok">✓ Bate com o total da conta (${brl(d.billTotal)}).</div>`;
-  $("#nePreview").innerHTML = `<h3>Prévia da divisão</h3>${check}
-    <div class="sm mut">Subtotal ${brl(r.subtotal)}${d.serviceOn?` · serviço ${brl(r.serviceAmount)}`:""}${d.couvert?` · couvert ${brl(d.couvert)}`:""}${d.discount?` · -${brl(d.discount)}`:""}</div>
-    ${rows}
+  if(d.mode === "items" && d.billTotal != null && Math.abs(d.billTotal - r.total) > 0.05) check = `<div class="banner warn">Os itens somam ${brl(r.total)}, mas a conta diz ${brl(d.billTotal)} — confira se faltou ou repetiu item.</div>`;
+  else if(d.mode === "items" && d.billTotal != null) check = `<div class="banner ok">✓ Bate com o total da conta (${brl(d.billTotal)}).</div>`;
+  const sub = d.mode === "items"
+    ? `<div class="sm mut">Subtotal ${brl(r.subtotal)}${d.serviceOn?` · serviço ${brl(r.serviceAmount)}`:""}${d.couvert?` · couvert ${brl(d.couvert)}`:""}${d.discount?` · -${brl(d.discount)}`:""}</div>`
+    : "";
+  $("#nePreview").innerHTML = `<h3>Prévia da divisão</h3>${check}${sub}
+    ${rows || '<p class="sm mut">Informe um valor pra ver a divisão.</p>'}
     <div class="between" style="margin-top:8px"><span class="b">Total</span><span class="b">${brl(r.total)}</span></div>
     <div class="sm mut" style="margin-top:4px">Pago por <b>${esc(nameOf(d.payer))}</b></div>`;
 }
 async function saveExpense(){
   const d = DRAFT, r = draftSplit();
-  if(r.total <= 0){ toast("Adicione ao menos um item com valor"); return; }
-  const items = d.items.filter(it => (Number(it.qty)||0) > 0 && (Number(it.unitPrice)||0) > 0).map((it, i) => ({
-    name: it.name || "item", qty: Number(it.qty)||1, unit_price: Number(it.unitPrice)||0, position: i,
-    shares: (it.consumers.length ? it.consumers : d.allIds).map(mid => ({ member_id: mid, weight: 1 })),
-  }));
+  if(!(r.total > 0)){ toast(d.mode === "exact" ? "Preencha os valores" : "Informe um valor pra dividir"); return; }
+  if(d.mode === "equal" && !d.among.length){ toast("Escolha entre quem dividir"); return; }
+  const items = d.mode === "items"
+    ? d.items.filter(it => (Number(it.qty)||0) > 0 && (Number(it.unitPrice)||0) > 0).map((it, i) => ({
+        name: it.name || "item", qty: Number(it.qty)||1, unit_price: Number(it.unitPrice)||0, position: i,
+        shares: (it.consumers.length ? it.consumers : d.allIds).map(mid => ({ member_id: mid, weight: 1 })),
+      }))
+    : [];
+  const isItems = d.mode === "items";
   const payload = {
     group_id: d.groupId, description: d.description || "Despesa", place: d.place || null, spent_at: d.spent_at,
-    subtotal: round2(r.subtotal), service_rate: d.serviceOn ? d.serviceRate : 0, service_amount: round2(r.serviceAmount),
-    couvert: round2(d.couvert), discount: round2(d.discount), total: round2(r.total),
+    subtotal: round2(r.subtotal), service_rate: (isItems && d.serviceOn) ? d.serviceRate : 0, service_amount: round2(r.serviceAmount || 0),
+    couvert: isItems ? round2(d.couvert) : 0, discount: isItems ? round2(d.discount) : 0, total: round2(r.total),
     items, payers: [{ member_id: d.payer, amount: round2(r.total) }],
     shares: d.allIds.map(mid => ({ member_id: mid, amount: round2(r.shares[mid]||0) })).filter(s => s.amount !== 0),
   };
@@ -615,6 +661,7 @@ async function saveExpense(){
 }
 function applyToDraft(parsed){
   if(!parsed.items?.length){ toast("Não achei itens. Tente manual."); return; }
+  DRAFT.mode = "items";   // foto/texto trazem itens → entra no modo "Por item"
   parsed.items.forEach(p => DRAFT.items.push({ name: p.name, qty: p.qty, unitPrice: parseMoney(p.unitPrice ?? p.price ?? 0), consumers: [...DRAFT.allIds] }));
   if(parsed.total > 0) DRAFT.billTotal = parsed.total;
   if(parsed.service){ DRAFT.serviceOn = true; if(parsed.service.rate > 0) DRAFT.serviceRate = parsed.service.rate/100; }
