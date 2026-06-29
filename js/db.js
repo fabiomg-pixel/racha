@@ -6,8 +6,13 @@
 const CFG_KEY = "racha.sb";
 let _client = null, _createClient = null;
 
+// Config embutida (opcional): se preenchida, TODO navegador já abre conectado — ninguém vê
+// "Ative os Grupos" nem configura nada. A chave anon é pública por design (o RLS protege os
+// dados; ela já vai nos links de convite). Deixe vazio pra exigir config manual.
+const BAKED = { url: "", anon: "" };
 export function getSbConfig(){
-  try{ return JSON.parse(localStorage.getItem(CFG_KEY)) || null; }catch(_){ return null; }
+  try{ const c = JSON.parse(localStorage.getItem(CFG_KEY)); if(c && c.url && c.anon) return c; }catch(_){}
+  return (BAKED.url && BAKED.anon) ? { url: BAKED.url, anon: BAKED.anon } : null;
 }
 // Conserta os erros comuns: URL do painel colada em vez da API, só o ref, ou barra no fim.
 export function normalizeSupabaseUrl(raw){
