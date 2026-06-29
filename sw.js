@@ -1,7 +1,7 @@
 // Racha — service worker (cache versionado). App único, duas abas.
 // NETWORK-FIRST: online sempre serve o código fresco; o cache é só fallback offline (aba Racha).
 // Supabase/CDN/Anthropic passam direto pra rede.
-const CACHE = "racha-v19";
+const CACHE = "racha-v20";
 const ASSETS = [
   "./", "./index.html", "./manifest.json", "./icon.svg",
   "./js/app.js", "./js/db.js", "./js/ocr.js",

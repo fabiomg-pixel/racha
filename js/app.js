@@ -39,15 +39,15 @@ let ITEM_SINK = null;   // pra onde foto/texto mandam os itens lidos (definido p
 // Quem abre adota a config automaticamente e só precisa fazer login — nada de ⚙.
 function adoptConfigFromLink(){
   const q = new URLSearchParams(location.search);
-  const s = q.get("s"), k = q.get("k");
-  if(s && k){
-    try{ db.setSbConfig(s, k); }catch(_){}
-    q.delete("s"); q.delete("k");
+  const s = q.get("s"), k = q.get("k"), join = q.get("join");
+  let changed = false;
+  if(s && k){ try{ db.setSbConfig(s, k); }catch(_){} q.delete("s"); q.delete("k"); changed = true; }
+  if(join){ try{ localStorage.setItem("racha.join", join); }catch(_){} q.delete("join"); changed = true; }   // alvo do convite sobrevive ao login
+  if(changed){
     const qs = q.toString();
     history.replaceState(null, "", location.pathname + (qs ? "?" + qs : "") + location.hash);
-    return true;
   }
-  return false;
+  return changed;
 }
 async function boot(){
   wireHeader(); wireTabs(); wireConfig(); wireCamera();
@@ -61,8 +61,8 @@ async function boot(){
       PROFILE = ME ? await db.getMyProfile() : null;
       db.onAuthChange(async (u) => {
         ME = u; PROFILE = u ? await db.getMyProfile() : null; paintAcct();
-        const pending = sessionStorage.getItem("racha.join");
-        if(ME && pending && location.hash.indexOf("join") < 0){ sessionStorage.removeItem("racha.join"); return go("join/" + pending); }
+        const pending = localStorage.getItem("racha.join");
+        if(ME && pending && location.hash.indexOf("join") < 0){ localStorage.removeItem("racha.join"); return go("join/" + pending); }
         if(ME && cameFromAuth){ cameFromAuth = false; return go("grupos"); }   // login pelo link → abre os Grupos
         route();
       });
@@ -263,7 +263,7 @@ async function launchToGroup(){
   if(r.total <= 0){ toast("Adicione itens com valor primeiro"); return; }
   if(CALC.people.length === 0){ toast("Adicione as pessoas primeiro"); return; }
   if(!db.hasConfig()){ toast("Configure os Grupos (Supabase) em ⚙"); openCfg(); return; }
-  if(!ME){ toast("Entre na sua conta pra lançar no grupo"); sessionStorage.removeItem("racha.join"); return go("grupos"); }
+  if(!ME){ toast("Entre na sua conta pra lançar no grupo"); localStorage.removeItem("racha.join"); return go("grupos"); }
 
   let groups = [];
   try{ groups = await db.myGroups(); }catch(e){ console.error(e); toast("Não consegui buscar seus grupos"); return; }
@@ -725,7 +725,7 @@ async function settleDialog(groupId, t, mById){
 
 async function renderJoin(groupId){
   if(!db.hasConfig()){ return renderNeedConfig(); }
-  if(!ME){ sessionStorage.setItem("racha.join", groupId); return renderLogin(); }
+  if(!ME){ localStorage.setItem("racha.join", groupId); return renderLogin(); }
   loading("Abrindo convite…");
   let name = "Grupo", ghosts = [];
   try{ [name, ghosts] = await Promise.all([ db.groupNameOf(groupId), db.ghostsOf(groupId) ]); }
@@ -737,7 +737,7 @@ async function renderJoin(groupId){
     <h2>Entrar em “${esc(name||"Grupo")}”</h2>${ghostBtns}
     <button class="btn block" id="joinNew" style="margin-top:8px">Entrar como ${esc(PROFILE?.name || "novo membro")}</button>
     <p class="sm mut" style="text-align:center;margin-top:10px"><a class="link" href="#grupos">cancelar</a></p></div>`;
-  const join = async (claim) => { await guard(() => db.joinGroup(groupId, claim), "Não consegui entrar"); sessionStorage.removeItem("racha.join"); toast("Você entrou no grupo ✓"); go(`g/${groupId}`); };
+  const join = async (claim) => { await guard(() => db.joinGroup(groupId, claim), "Não consegui entrar"); localStorage.removeItem("racha.join"); toast("Você entrou no grupo ✓"); go(`g/${groupId}`); };
   $("#joinNew").onclick = () => join(null);
   app.querySelectorAll("[data-claim]").forEach(b => b.onclick = () => join(b.dataset.claim));
 }

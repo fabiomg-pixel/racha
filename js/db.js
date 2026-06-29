@@ -74,11 +74,16 @@ export function onAuthChange(cb){
   return sb().auth.onAuthStateChange((_e, session) => cb(session?.user || null));
 }
 export async function sendMagicLink(email){
-  // o link de retorno carrega a conexão (igual ao convite) — assim o login fecha em
-  // QUALQUER navegador, mesmo um que nunca foi configurado. adoptConfigFromLink() adota no boot.
+  // o link de retorno carrega a conexão (igual ao convite) E o alvo do convite (#join) —
+  // assim o login fecha em QUALQUER navegador/aba e cai no grupo certo. adoptConfigFromLink() adota no boot.
   const c = getSbConfig();
   const base = location.origin + location.pathname;
-  const redirect = c ? `${base}?s=${encodeURIComponent(c.url)}&k=${encodeURIComponent(c.anon)}` : base;
+  const params = new URLSearchParams();
+  if(c){ params.set("s", c.url); params.set("k", c.anon); }
+  const joinId = (location.hash.match(/join\/([^/?#&]+)/) || [])[1];   // está entrando por convite? leva o grupo
+  if(joinId) params.set("join", joinId);
+  const qs = params.toString();
+  const redirect = base + (qs ? "?" + qs : "");
   return unwrap(await sb().auth.signInWithOtp({ email: email.trim(), options: { emailRedirectTo: redirect } }));
 }
 // alternativa à prova de PWA: o usuário digita o código de 6 dígitos que veio no e-mail
