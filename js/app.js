@@ -51,6 +51,8 @@ function adoptConfigFromLink(){
 }
 async function boot(){
   wireHeader(); wireTabs(); wireConfig(); wireCamera();
+  // chegou voltando de um link de login? (token no hash, ou code na query) → depois do login, cai nos Grupos
+  let cameFromAuth = /access_token=|[?&]code=/.test(location.hash + location.search);
   adoptConfigFromLink();
   if(db.hasConfig()){
     try{
@@ -61,6 +63,7 @@ async function boot(){
         ME = u; PROFILE = u ? await db.getMyProfile() : null; paintAcct();
         const pending = sessionStorage.getItem("racha.join");
         if(ME && pending && location.hash.indexOf("join") < 0){ sessionStorage.removeItem("racha.join"); return go("join/" + pending); }
+        if(ME && cameFromAuth){ cameFromAuth = false; return go("grupos"); }   // login pelo link → abre os Grupos
         route();
       });
     }catch(e){ console.error("supabase init falhou", e); INIT_ERR = e?.message || String(e); }   // não derruba a aba Racha

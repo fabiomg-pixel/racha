@@ -1,6 +1,6 @@
 // Racha — service worker (cache versionado). App único, duas abas.
 // Online-first pro HTML; cacheia o shell + módulos locais. Supabase/CDN/Anthropic passam direto.
-const CACHE = "racha-v15";
+const CACHE = "racha-v16";
 const ASSETS = [
   "./", "./index.html", "./manifest.json", "./icon.svg",
   "./js/app.js", "./js/db.js", "./js/ocr.js",

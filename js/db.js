@@ -66,7 +66,11 @@ export function onAuthChange(cb){
   return sb().auth.onAuthStateChange((_e, session) => cb(session?.user || null));
 }
 export async function sendMagicLink(email){
-  const redirect = location.origin + location.pathname;   // volta pra esta página
+  // o link de retorno carrega a conexão (igual ao convite) — assim o login fecha em
+  // QUALQUER navegador, mesmo um que nunca foi configurado. adoptConfigFromLink() adota no boot.
+  const c = getSbConfig();
+  const base = location.origin + location.pathname;
+  const redirect = c ? `${base}?s=${encodeURIComponent(c.url)}&k=${encodeURIComponent(c.anon)}` : base;
   return unwrap(await sb().auth.signInWithOtp({ email: email.trim(), options: { emailRedirectTo: redirect } }));
 }
 // alternativa à prova de PWA: o usuário digita o código de 6 dígitos que veio no e-mail
