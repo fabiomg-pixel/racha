@@ -1,6 +1,7 @@
 // Racha — service worker (cache versionado). App único, duas abas.
-// Online-first pro HTML; cacheia o shell + módulos locais. Supabase/CDN/Anthropic passam direto.
-const CACHE = "racha-v16";
+// NETWORK-FIRST: online sempre serve o código fresco; o cache é só fallback offline (aba Racha).
+// Supabase/CDN/Anthropic passam direto pra rede.
+const CACHE = "racha-v17";
 const ASSETS = [
   "./", "./index.html", "./manifest.json", "./icon.svg",
   "./js/app.js", "./js/db.js", "./js/ocr.js",
@@ -27,9 +28,10 @@ self.addEventListener("fetch", e => {
     e.respondWith(fetch(req).catch(() => caches.match("./index.html")));
     return;
   }
-  e.respondWith(caches.match(req).then(hit => hit || fetch(req).then(res => {
+  // network-first: pega o JS/asset fresco quando online; cai pro cache só se a rede falhar
+  e.respondWith(fetch(req).then(res => {
     const copy = res.clone();
     caches.open(CACHE).then(c => c.put(req, copy)).catch(() => {});
     return res;
-  }).catch(() => hit)));
+  }).catch(() => caches.match(req)));
 });
