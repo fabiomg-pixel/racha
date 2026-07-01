@@ -31,7 +31,7 @@ function toast(msg, ms = 2600){
 function loading(msg = "Carregando…"){ app.innerHTML = `<div class="card" style="text-align:center"><div class="spin"></div><p class="mut sm">${esc(msg)}</p></div>`; }
 async function guard(fn, msg){ try{ return await fn(); }catch(e){ console.error(e); toast(msg || (e?.message || "Algo deu errado"), 4500); throw e; } }
 
-let ME = null, PROFILE = null, INIT_ERR = null;
+let ME = null, PROFILE = null, INIT_ERR = null, LIVE = null;
 let ITEM_SINK = null;   // pra onde foto/texto mandam os itens lidos (definido por cada aba)
 
 /* ============================ boot ============================ */
@@ -105,6 +105,7 @@ function route(){
   $("#tabRacha").classList.toggle("on", tab === "racha");
   $("#tabGrupos").classList.toggle("on", tab === "grupos");
   ITEM_SINK = null;
+  if(LIVE){ db.unsubscribe(LIVE); LIVE = null; }   // encerra o realtime da tela anterior
   if(tab === "racha") return renderRacha();
   const { parts } = parseHash();
   if(parts[0] === "join" && parts[1]) return renderJoin(parts[1]);
@@ -430,23 +431,35 @@ async function renderGroups(){
   };
 }
 
+let liveTimer = null;
 async function renderGroup(groupId){
+  if(LIVE){ db.unsubscribe(LIVE); LIVE = null; }   // evita canal duplicado em re-render ao vivo
   loading("Abrindo o grupo…");
-  let group, members, bal, expenses;
+  let group, members, bal, expenses, activity = [];
   try{
-    [members, bal, expenses] = await Promise.all([ db.groupMembers(groupId), db.balances(groupId), db.listExpenses(groupId) ]);
+    [members, bal, expenses, activity] = await Promise.all([
+      db.groupMembers(groupId), db.balances(groupId), db.listExpenses(groupId), db.groupActivity(groupId).catch(() => []),
+    ]);
     group = { id: groupId, name: (await db.groupNameOf(groupId)) || "Grupo" };
   }catch(e){ console.error(e); return renderNeedConfig(e?.message); }
 
+  const myId = members.find(m => m.user_id === ME?.id)?.id;
   const balRows = bal.slice().sort((a,b) => b.net - a.net).map(m => {
     const n = Number(m.net), cls = Math.abs(n) < 0.005 ? "zero" : n > 0 ? "pos" : "neg";
     const txt = Math.abs(n) < 0.005 ? "quite" : (n > 0 ? "recebe " : "deve ") + brl(Math.abs(n));
-    return `<div class="listrow"><div class="row">${avatar(m.display_name)}<span class="b">${esc(m.display_name)}</span>${m.user_id?"":'<span class="pill zero">fantasma</span>'}</div><span class="pill ${cls}">${txt}</span></div>`;
+    const nudge = (n < -0.005 && m.id !== myId) ? `<a class="link sm" data-nudge="${m.id}">cobrar</a>` : "";
+    return `<div class="listrow"><div class="row">${avatar(m.display_name)}<span class="b">${esc(m.display_name)}</span>${m.user_id?"":'<span class="pill zero">fantasma</span>'}</div><div class="row" style="gap:8px"><span class="pill ${cls}">${txt}</span>${nudge}</div></div>`;
   }).join("");
   const expList = expenses.length ? expenses.map(e => `
     <div class="listrow" data-exp="${e.id}" style="cursor:pointer">
       <div><div class="b">${esc(e.description || "Despesa")}</div><div class="sm mut">${fmtDate(e.spent_at)}${e.place?" · "+esc(e.place):""}</div></div>
       <div class="b">${brl(e.total)}</div></div>`).join("") : `<div class="empty">Sem despesas. Adicione a primeira.</div>`;
+  const actIcon = { expense: "🧾", settle: "💸", join: "👋" };
+  const actText = ev => ev.kind === "expense" ? `<b>${esc(ev.who)}</b> adicionou “${esc(ev.desc || "despesa")}” · ${brl(ev.total)}`
+    : ev.kind === "settle" ? `<b>${esc(ev.from)}</b> pagou ${brl(ev.amount)} a <b>${esc(ev.to)}</b>`
+    : `<b>${esc(ev.who)}</b> entrou no grupo`;
+  const actList = activity.length ? activity.slice(0, 12).map(ev =>
+    `<div class="listrow"><div class="row"><span style="font-size:17px">${actIcon[ev.kind] || "•"}</span><div><div class="sm">${actText(ev)}</div><div class="sm mut">${timeAgo(ev.at)}</div></div></div></div>`).join("") : `<div class="empty">Sem atividade ainda.</div>`;
 
   app.innerHTML = `
     <div class="card">
@@ -458,11 +471,31 @@ async function renderGroup(groupId){
       ${balRows || `<div class="empty">Adicione membros e uma despesa.</div>`}
     </div>
     <div class="card"><h3>Despesas</h3>${expList}</div>
+    <div class="card"><h3>Atividade</h3>${actList}</div>
     <button class="btn block fab" id="gNew">+ Nova despesa</button>`;
   $("#gNew").onclick = () => go(`g/${groupId}/new`);
   $("#gSettle").onclick = () => go(`g/${groupId}/settle`);
   $("#gMembers").onclick = () => membersDialog(groupId, members);
   app.querySelectorAll("[data-exp]").forEach(r => r.onclick = () => expenseDialog(r.dataset.exp, groupId));
+  app.querySelectorAll("[data-nudge]").forEach(a => a.onclick = () => {
+    const m = bal.find(x => x.id === a.dataset.nudge); if(!m) return;
+    let msg = `Oi! Passando pra lembrar do nosso *${group.name}*: você está com *${brl(Math.abs(Number(m.net)))}* a acertar. 🙂`;
+    if(PROFILE?.pix_key) msg += `\nSe for comigo, meu Pix: ${PROFILE.pix_key}`;
+    window.open(`https://wa.me/?text=${encodeURIComponent(msg)}`, "_blank");
+  });
+  // atualização ao vivo: quando alguém mexe no grupo, recarrega (debounced) se ainda estou nele
+  LIVE = db.subscribeGroup(groupId, () => {
+    clearTimeout(liveTimer);
+    liveTimer = setTimeout(() => { if(location.hash.replace(/^#\/?/, "").startsWith(`g/${groupId}`)) renderGroup(groupId); }, 500);
+  });
+}
+function timeAgo(at){
+  const s = (Date.now() - new Date(at).getTime()) / 1000;
+  if(s < 60) return "agora";
+  if(s < 3600) return `há ${Math.floor(s/60)} min`;
+  if(s < 86400) return `há ${Math.floor(s/3600)} h`;
+  if(s < 604800) return `há ${Math.floor(s/86400)} d`;
+  return fmtDate(at);
 }
 
 function inviteLink(groupId){
@@ -497,10 +530,14 @@ async function membersDialog(groupId, members){
 async function expenseDialog(expId, groupId){
   const dlg = document.createElement("dialog"); document.body.appendChild(dlg);
   dlg.innerHTML = `<div class="dlg-bd"><div class="spin"></div></div>`; dlg.showModal();
-  let e, members;
-  try{ [e, members] = await Promise.all([ db.getExpense(expId), db.groupMembers(groupId) ]); }
+  let e, members, comments = [];
+  try{ [e, members, comments] = await Promise.all([ db.getExpense(expId), db.groupMembers(groupId), db.expenseComments(expId).catch(() => []) ]); }
   catch(err){ dlg.close(); dlg.remove(); toast("Não consegui abrir a despesa"); return; }
   const nameOf = id => members.find(m => m.id === id)?.display_name || "?";
+  const nameOfUser = uid => members.find(m => m.user_id === uid)?.display_name || "Alguém";
+  const commentHtml = list => list.length
+    ? list.map(c => `<div class="listrow" style="align-items:flex-start"><div><div class="sm"><b>${esc(nameOfUser(c.user_id))}</b> <span class="mut">${timeAgo(c.created_at)}</span></div><div class="sm">${esc(c.body)}</div></div>${c.user_id===ME?.id?`<a class="link sm" data-delc="${c.id}">apagar</a>`:""}</div>`).join("")
+    : `<p class="sm mut">Sem comentários.</p>`;
   const items = (e.items||[]).map(it => `<div class="listrow"><div><div>${esc(it.name||"item")}</div><div class="sm mut">${Number(it.qty)}× ${brl(it.unit_price)} · ${(it.shares||[]).map(s=>esc(nameOf(s.member_id))).join(", ")||"todos"}</div></div><div>${brl(Number(it.qty)*Number(it.unit_price))}</div></div>`).join("");
   const payers = (e.payers||[]).map(p => `${esc(nameOf(p.member_id))} ${brl(p.amount)}`).join(", ");
   const shares = (e.shares||[]).map(s => `<div class="listrow"><span>${esc(nameOf(s.member_id))}</span><span class="b">${brl(s.amount)}</span></div>`).join("");
@@ -512,12 +549,27 @@ async function expenseDialog(expId, groupId){
     <h3 style="margin-top:12px">Quanto cada um deve</h3>${shares}
     <div class="between" style="margin-top:8px"><span class="mut">Total</span><span class="b">${brl(e.total)}</span></div>
     ${e.receipt ? `<h3 style="margin-top:12px">Recibo</h3><img src="${e.receipt}" alt="recibo" style="max-width:100%;border-radius:10px">` : ""}
+    <h3 style="margin-top:14px">Comentários</h3>
+    <div id="eComments">${commentHtml(comments)}</div>
+    <div class="row" style="margin-top:8px"><input id="eCmt" placeholder="escrever um comentário…" class="grow"><button class="btn sm" id="eCmtBtn">Enviar</button></div>
     <div class="row" style="margin-top:16px"><button class="btn sec grow" id="eClose">Fechar</button><button class="btn grow" id="eEdit">Editar</button><button class="btn" id="eDel" style="background:var(--danger)">Excluir</button></div>
   </div>`;
   const close = () => { dlg.close(); dlg.remove(); };
+  const wireDelC = () => dlg.querySelectorAll("[data-delc]").forEach(a => a.onclick = async () => { await guard(() => db.deleteComment(a.dataset.delc), "Não consegui apagar"); refreshComments(); });
+  const refreshComments = async () => { const list = await db.expenseComments(expId).catch(() => []); dlg.querySelector("#eComments").innerHTML = commentHtml(list); wireDelC(); };
+  const sendComment = async () => {
+    const inp = dlg.querySelector("#eCmt"), body = inp.value.trim(); if(!body) return;
+    dlg.querySelector("#eCmtBtn").disabled = true;
+    try{ await db.addComment(expId, body); inp.value = ""; await refreshComments(); }
+    catch(err){ toast(err?.message || "Não consegui comentar (rodou o 0003?)", 4500); }
+    finally{ dlg.querySelector("#eCmtBtn").disabled = false; }
+  };
   dlg.querySelector("#eClose").onclick = close;
   dlg.querySelector("#eEdit").onclick = () => { close(); go(`g/${groupId}/e/${expId}`); };
   dlg.querySelector("#eDel").onclick = async () => { if(!confirm("Excluir esta despesa?")) return; await guard(() => db.deleteExpense(expId), "Não consegui excluir"); close(); renderGroup(groupId); };
+  dlg.querySelector("#eCmtBtn").onclick = sendComment;
+  dlg.querySelector("#eCmt").addEventListener("keydown", ev => { if(ev.key === "Enter") sendComment(); });
+  wireDelC();
 }
 
 let DRAFT = null, MEMBERS = [];

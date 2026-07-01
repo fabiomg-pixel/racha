@@ -156,6 +156,44 @@ export async function saveExpense(payload){ return unwrap(await sb().rpc("create
 export async function updateExpense(payload){ return unwrap(await sb().rpc("update_expense", { payload })); }
 export async function deleteExpense(id){ return unwrap(await sb().from("expenses").delete().eq("id", id)); }
 
+/* ---------------- feed de atividade (derivado, sem tabela extra) ---------------- */
+export async function groupActivity(groupId, limit = 40){
+  const [exps, sets, mems] = await Promise.all([
+    sb().from("expenses").select("id,description,total,created_at,created_by").eq("group_id", groupId).order("created_at", { ascending: false }).limit(limit).then(unwrap),
+    sb().from("settlements").select("id,amount,settled_at,from_member,to_member").eq("group_id", groupId).order("settled_at", { ascending: false }).limit(limit).then(unwrap),
+    sb().from("group_members").select("id,user_id,display_name,created_at").eq("group_id", groupId).then(unwrap),
+  ]);
+  const byUser = {}, byMember = {};
+  (mems || []).forEach(m => { byMember[m.id] = m.display_name; if(m.user_id) byUser[m.user_id] = m.display_name; });
+  const ev = [];
+  (exps || []).forEach(e => ev.push({ at: e.created_at, kind: "expense", who: byUser[e.created_by] || "Alguém", desc: e.description, total: Number(e.total), expId: e.id }));
+  (sets || []).forEach(s => ev.push({ at: s.settled_at, kind: "settle", from: byMember[s.from_member] || "?", to: byMember[s.to_member] || "?", amount: Number(s.amount) }));
+  (mems || []).forEach(m => { if(m.user_id) ev.push({ at: m.created_at, kind: "join", who: m.display_name }); });
+  return ev.sort((a, b) => new Date(b.at) - new Date(a.at)).slice(0, limit);
+}
+
+/* ---------------- comentários ---------------- */
+export async function expenseComments(expId){
+  return unwrap(await sb().from("expense_comments").select("id,user_id,body,created_at").eq("expense_id", expId).order("created_at"));
+}
+export async function addComment(expId, body){
+  const u = await currentUser();
+  return unwrap(await sb().from("expense_comments").insert({ expense_id: expId, user_id: u?.id || null, body: body.trim() }).select().single());
+}
+export async function deleteComment(id){ return unwrap(await sb().from("expense_comments").delete().eq("id", id)); }
+
+/* ---------------- realtime (atualização ao vivo do grupo) ---------------- */
+export function subscribeGroup(groupId, onChange){
+  try{
+    const ch = sb().channel(`grp:${groupId}`);
+    ["expenses", "settlements", "group_members"].forEach(t =>   // tabelas com coluna group_id
+      ch.on("postgres_changes", { event: "*", schema: "public", table: t, filter: `group_id=eq.${groupId}` }, () => onChange()));
+    ch.subscribe();
+    return ch;
+  }catch(_){ return null; }
+}
+export function unsubscribe(ch){ try{ if(ch) sb().removeChannel(ch); }catch(_){} }
+
 /* ---------------- saldos e acertos ---------------- */
 export async function balances(groupId){ return unwrap(await sb().rpc("group_balances", { g: groupId })); }
 export async function listSettlements(groupId){
@@ -167,15 +205,6 @@ export async function addSettlement({ groupId, from, to, amount, method = "pix",
   return unwrap(await sb().from("settlements")
     .insert({ group_id: groupId, from_member: from, to_member: to, amount, method, note, created_by: u?.id })
     .select().single());
-}
-
-/* ---------------- realtime (mesa ao vivo) ---------------- */
-export function subscribeGroup(groupId, onChange){
-  const ch = sb().channel("grp:" + groupId);
-  ["expenses", "expense_items", "item_shares", "expense_payers", "expense_shares", "settlements", "group_members"]
-    .forEach(t => ch.on("postgres_changes", { event: "*", schema: "public", table: t }, () => onChange()));
-  ch.subscribe();
-  return () => sb().removeChannel(ch);
 }
 
 /* pega a chave pix do recebedor (membro com conta) pra montar o copia-e-cola */
