@@ -153,6 +153,7 @@ export async function getExpense(id){
 }
 // payload já com shares calculados (split.js) — RPC insere tudo numa transação
 export async function saveExpense(payload){ return unwrap(await sb().rpc("create_expense", { payload })); }
+export async function updateExpense(payload){ return unwrap(await sb().rpc("update_expense", { payload })); }
 export async function deleteExpense(id){ return unwrap(await sb().from("expenses").delete().eq("id", id)); }
 
 /* ---------------- saldos e acertos ---------------- */

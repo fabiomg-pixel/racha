@@ -112,6 +112,7 @@ function route(){
   if(!ME) return renderLogin();
   if(parts[0] === "g" && parts[1]){
     if(parts[2] === "new") return renderNewExpense(parts[1]);
+    if(parts[2] === "e" && parts[3]) return renderEditExpense(parts[1], parts[3]);
     if(parts[2] === "settle") return renderSettle(parts[1]);
     return renderGroup(parts[1]);
   }
@@ -395,13 +396,28 @@ async function renderGroups(){
   loading("Buscando seus grupos…");
   let groups;
   try{ groups = await db.myGroups(); }catch(e){ return renderNeedConfig(e?.message); }
-  const list = groups.length ? groups.map(g => `
-    <div class="listrow" data-g="${g.id}" style="cursor:pointer">
+  const bals = await Promise.all(groups.map(g => db.balances(g.id).catch(() => [])));
+  const nets = groups.map((g, i) => { const mine = bals[i].find(r => r.user_id === ME?.id); return { g, net: Number(mine?.net || 0) }; });
+  const recv = nets.filter(x => x.net > 0.005).reduce((s, x) => s + x.net, 0);
+  const pay  = nets.filter(x => x.net < -0.005).reduce((s, x) => s - x.net, 0);
+  const summary = groups.length ? `
+    <div class="card">
+      <h2 style="margin:0 0 .5em">No total</h2>
+      <div class="grid2">
+        <div><div class="sm mut">a receber</div><div class="b" style="font-size:20px;color:var(--okink)">${brl(recv)}</div></div>
+        <div><div class="sm mut">a pagar</div><div class="b" style="font-size:20px;color:var(--warn)">${brl(pay)}</div></div>
+      </div>
+    </div>` : "";
+  const list = groups.length ? nets.map(({ g, net }) => {
+    const cls = Math.abs(net) < 0.005 ? "zero" : net > 0 ? "pos" : "neg";
+    const txt = Math.abs(net) < 0.005 ? "quite" : (net > 0 ? "recebe " : "deve ") + brl(Math.abs(net));
+    return `<div class="listrow" data-g="${g.id}" style="cursor:pointer">
       <div class="row">${avatar(g.name)}<div><div class="b">${esc(g.name)}</div><div class="sm mut">${esc(g.currency||"BRL")}</div></div></div>
-      <div class="mut">›</div>
-    </div>`).join("") : `<div class="empty">Nenhum grupo ainda.<br>Crie o primeiro — ou lance um racha da aba ao lado.</div>`;
+      <span class="pill ${cls}">${txt}</span></div>`;
+  }).join("") : `<div class="empty">Nenhum grupo ainda.<br>Crie o primeiro — ou lance um racha da aba ao lado.</div>`;
   app.innerHTML = `
-    <div class="card"><h2 style="margin:0 0 .4em">Seus grupos</h2>${list}</div>
+    ${summary}
+    <div class="card"><h3 style="margin:0 0 .4em">Seus grupos</h3>${list}</div>
     <div class="card"><h3>Novo grupo</h3>
       <div class="row"><input id="ngName" placeholder="ex.: República, Viagem, Happy hour"><button class="btn" id="ngBtn">Criar</button></div>
     </div>`;
@@ -490,27 +506,54 @@ async function expenseDialog(expId, groupId){
   const shares = (e.shares||[]).map(s => `<div class="listrow"><span>${esc(nameOf(s.member_id))}</span><span class="b">${brl(s.amount)}</span></div>`).join("");
   dlg.innerHTML = `<div class="dlg-bd">
     <h2>${esc(e.description||"Despesa")}</h2>
-    <p class="sm mut" style="margin-top:0">${fmtDate(e.spent_at)}${e.place?" · "+esc(e.place):""} · pago por ${payers||"—"}</p>
+    <p class="sm mut" style="margin-top:0">${fmtDate(e.spent_at)}${e.category?" · "+esc(e.category):""}${e.place?" · "+esc(e.place):""} · pago por ${payers||"—"}</p>
+    ${e.note ? `<p class="sm" style="margin-top:-4px">“${esc(e.note)}”</p>` : ""}
     <h3>Itens</h3>${items||'<p class="sm mut">sem itens</p>'}
     <h3 style="margin-top:12px">Quanto cada um deve</h3>${shares}
     <div class="between" style="margin-top:8px"><span class="mut">Total</span><span class="b">${brl(e.total)}</span></div>
-    <div class="row" style="margin-top:16px"><button class="btn sec grow" id="eClose">Fechar</button><button class="btn grow" id="eDel" style="background:var(--danger)">Excluir</button></div>
+    <div class="row" style="margin-top:16px"><button class="btn sec grow" id="eClose">Fechar</button><button class="btn grow" id="eEdit">Editar</button><button class="btn" id="eDel" style="background:var(--danger)">Excluir</button></div>
   </div>`;
   const close = () => { dlg.close(); dlg.remove(); };
   dlg.querySelector("#eClose").onclick = close;
+  dlg.querySelector("#eEdit").onclick = () => { close(); go(`g/${groupId}/e/${expId}`); };
   dlg.querySelector("#eDel").onclick = async () => { if(!confirm("Excluir esta despesa?")) return; await guard(() => db.deleteExpense(expId), "Não consegui excluir"); close(); renderGroup(groupId); };
 }
 
 let DRAFT = null, MEMBERS = [];
+const CATEGORIES = ["🍽️ Comida", "🍺 Bar/Boteco", "🛒 Mercado", "🏠 Casa", "🚗 Transporte", "✈️ Viagem", "🎉 Lazer", "💊 Saúde", "🧾 Contas", "🎁 Outros"];
 async function renderNewExpense(groupId){
   loading("Preparando…");
   try{ MEMBERS = await db.groupMembers(groupId); }catch(e){ return renderNeedConfig(e?.message); }
   if(MEMBERS.length === 0){ toast("Adicione membros ao grupo primeiro"); return renderGroup(groupId); }
   const allIds = MEMBERS.map(m => m.id);
   const meMember = MEMBERS.find(m => m.user_id === ME?.id);
-  DRAFT = { groupId, description: "", place: "", spent_at: todayISO(), payer: (meMember || MEMBERS[0]).id,
+  DRAFT = { groupId, editId: null, description: "", place: "", spent_at: todayISO(), payer: (meMember || MEMBERS[0]).id,
             mode: "equal", total: 0, among: [...allIds], exact: {},
-            items: [], serviceOn: false, serviceRate: 0.10, couvert: 0, discount: 0, billTotal: null, allIds };
+            items: [], serviceOn: false, serviceRate: 0.10, couvert: 0, discount: 0, billTotal: null,
+            category: "", note: "", allIds };
+  paintNewExpense();
+}
+async function renderEditExpense(groupId, expId){
+  loading("Abrindo pra editar…");
+  let e, members;
+  try{ [e, members] = await Promise.all([ db.getExpense(expId), db.groupMembers(groupId) ]); }
+  catch(err){ console.error(err); toast("Não consegui abrir a despesa"); return go(`g/${groupId}`); }
+  MEMBERS = members;
+  const allIds = members.map(m => m.id);
+  const hasItems = (e.items || []).length > 0;
+  const meMember = members.find(m => m.user_id === ME?.id);
+  DRAFT = {
+    groupId, editId: e.id, description: e.description || "", place: e.place || "", spent_at: e.spent_at || todayISO(),
+    payer: (e.payers && e.payers[0]?.member_id) || (meMember || members[0]).id,
+    mode: hasItems ? "items" : "exact",
+    total: Number(e.total) || 0, among: [...allIds], exact: {},
+    items: (e.items || []).slice().sort((a, b) => a.position - b.position)
+             .map(it => ({ name: it.name || "", qty: Number(it.qty) || 1, unitPrice: Number(it.unit_price) || 0, consumers: (it.shares || []).map(s => s.member_id) })),
+    serviceOn: Number(e.service_rate) > 0, serviceRate: Number(e.service_rate) || 0.10,
+    couvert: Number(e.couvert) || 0, discount: Number(e.discount) || 0, billTotal: null,
+    category: e.category || "", note: e.note || "", allIds,
+  };
+  (e.shares || []).forEach(s => { DRAFT.exact[s.member_id] = Number(s.amount) || 0; });   // modo Valores reproduz o rateio salvo
   paintNewExpense();
 }
 function paintNewExpense(){
@@ -554,11 +597,15 @@ function paintNewExpense(){
 
   app.innerHTML = `
     <div class="card">
-      <div class="between"><a class="link" id="neBack">← grupo</a><span class="mut sm">nova despesa</span></div>
+      <div class="between"><a class="link" id="neBack">← grupo</a><span class="mut sm">${d.editId ? "editar despesa" : "nova despesa"}</span></div>
       <label class="fld" style="margin-top:8px"><span>Descrição</span><input id="neDesc" value="${esc(d.description)}" placeholder="ex.: Jantar no boteco"></label>
       <div class="grid2">
-        <label class="fld"><span>Lugar (opcional)</span><input id="nePlace" value="${esc(d.place)}"></label>
+        <label class="fld"><span>Categoria</span><select id="neCat"><option value="">— sem categoria —</option>${CATEGORIES.map(c => `<option value="${esc(c)}" ${d.category===c?"selected":""}>${esc(c)}</option>`).join("")}</select></label>
         <label class="fld"><span>Data</span><input id="neDate" type="date" value="${d.spent_at}"></label>
+      </div>
+      <div class="grid2">
+        <label class="fld"><span>Lugar (opcional)</span><input id="nePlace" value="${esc(d.place)}"></label>
+        <label class="fld"><span>Nota (opcional)</span><input id="neNote" value="${esc(d.note)}" placeholder="observação"></label>
       </div>
     </div>
     <div class="card">
@@ -571,11 +618,13 @@ function paintNewExpense(){
       ${panel}
     </div>
     <div class="card" id="nePreview"></div>
-    <button class="btn block fab" id="neSave">Salvar despesa</button>`;
+    <button class="btn block fab" id="neSave">${d.editId ? "Salvar alterações" : "Salvar despesa"}</button>`;
 
   $("#neDesc").oninput = e => d.description = e.target.value;
   $("#nePlace").oninput = e => d.place = e.target.value;
   $("#neDate").oninput = e => d.spent_at = e.target.value;
+  $("#neCat").onchange = e => d.category = e.target.value;
+  $("#neNote").oninput = e => d.note = e.target.value;
   $("#nePayer").onchange = e => d.payer = e.target.value;
   $("#neBack").onclick = () => go(`g/${d.groupId}`);
   $("#neSave").onclick = saveExpense;
@@ -648,7 +697,9 @@ async function saveExpense(){
     : [];
   const isItems = d.mode === "items";
   const payload = {
+    ...(d.editId ? { id: d.editId } : {}),
     group_id: d.groupId, description: d.description || "Despesa", place: d.place || null, spent_at: d.spent_at,
+    category: d.category || null, note: d.note || null,
     subtotal: round2(r.subtotal), service_rate: (isItems && d.serviceOn) ? d.serviceRate : 0, service_amount: round2(r.serviceAmount || 0),
     couvert: isItems ? round2(d.couvert) : 0, discount: isItems ? round2(d.discount) : 0, total: round2(r.total),
     items, payers: [{ member_id: d.payer, amount: round2(r.total) }],
@@ -656,8 +707,10 @@ async function saveExpense(){
   };
   fixPennies(payload.shares, payload.total);
   $("#neSave").disabled = true;
-  try{ await db.saveExpense(payload); toast("Despesa salva ✓"); go(`g/${d.groupId}`); }
-  catch(e){ console.error(e); toast(e?.message || "Não consegui salvar", 4500); $("#neSave").disabled = false; }
+  try{
+    if(d.editId) await db.updateExpense(payload); else await db.saveExpense(payload);
+    toast(d.editId ? "Despesa atualizada ✓" : "Despesa salva ✓"); go(`g/${d.groupId}`);
+  }catch(e){ console.error(e); toast(e?.message || "Não consegui salvar", 4500); $("#neSave").disabled = false; }
 }
 function applyToDraft(parsed){
   if(!parsed.items?.length){ toast("Não achei itens. Tente manual."); return; }
