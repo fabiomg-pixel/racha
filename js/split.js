@@ -47,6 +47,16 @@ export function computeShares(members, items, opts = {}){
   };
 }
 
+// Rateia `total` proporcional a pesos, reconciliando centavos.
+// weights: { memberId: peso }. Serve pra % (peso = porcentagem) e partes (peso = nº de partes).
+export function allocateByWeights(total, weights){
+  const ids = Object.keys(weights || {}).filter(id => (Number(weights[id]) || 0) > 0);
+  if(!ids.length) return {};
+  const wsum = ids.reduce((s, id) => s + Number(weights[id]), 0);
+  const raw = ids.map(id => ({ m: id, amount: (Number(total) || 0) * Number(weights[id]) / wsum }));
+  return reconcile(raw, Number(total) || 0);
+}
+
 // distribui o resíduo de arredondamento (maior resto) pra somar exatamente `total`
 export function reconcile(raw, total){
   const out = {};

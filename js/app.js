@@ -4,7 +4,7 @@
 // Ponte: o resultado do Racha pode ser "lançado" como despesa de um grupo.
 import * as db from "./db.js";
 import { ocrImage, ocrConfigured, ocrError, fileToImage } from "./ocr.js";
-import { computeShares } from "./split.js";
+import { computeShares, allocateByWeights } from "./split.js";
 import { simplifyDebts, netFromRows } from "./ledger.js";
 import { buildPixPayload } from "./pix.js";
 import { parseBill } from "./parse.js";
@@ -511,6 +511,7 @@ async function expenseDialog(expId, groupId){
     <h3>Itens</h3>${items||'<p class="sm mut">sem itens</p>'}
     <h3 style="margin-top:12px">Quanto cada um deve</h3>${shares}
     <div class="between" style="margin-top:8px"><span class="mut">Total</span><span class="b">${brl(e.total)}</span></div>
+    ${e.receipt ? `<h3 style="margin-top:12px">Recibo</h3><img src="${e.receipt}" alt="recibo" style="max-width:100%;border-radius:10px">` : ""}
     <div class="row" style="margin-top:16px"><button class="btn sec grow" id="eClose">Fechar</button><button class="btn grow" id="eEdit">Editar</button><button class="btn" id="eDel" style="background:var(--danger)">Excluir</button></div>
   </div>`;
   const close = () => { dlg.close(); dlg.remove(); };
@@ -528,9 +529,9 @@ async function renderNewExpense(groupId){
   const allIds = MEMBERS.map(m => m.id);
   const meMember = MEMBERS.find(m => m.user_id === ME?.id);
   DRAFT = { groupId, editId: null, description: "", place: "", spent_at: todayISO(), payer: (meMember || MEMBERS[0]).id,
-            mode: "equal", total: 0, among: [...allIds], exact: {},
+            multiPayer: false, payAmt: {}, mode: "equal", total: 0, among: [...allIds], exact: {}, pct: {}, parts: {},
             items: [], serviceOn: false, serviceRate: 0.10, couvert: 0, discount: 0, billTotal: null,
-            category: "", note: "", allIds };
+            category: "", note: "", receipt: null, allIds };
   paintNewExpense();
 }
 async function renderEditExpense(groupId, expId){
@@ -542,16 +543,18 @@ async function renderEditExpense(groupId, expId){
   const allIds = members.map(m => m.id);
   const hasItems = (e.items || []).length > 0;
   const meMember = members.find(m => m.user_id === ME?.id);
+  const payerRows = e.payers || [];
   DRAFT = {
     groupId, editId: e.id, description: e.description || "", place: e.place || "", spent_at: e.spent_at || todayISO(),
-    payer: (e.payers && e.payers[0]?.member_id) || (meMember || members[0]).id,
+    payer: payerRows[0]?.member_id || (meMember || members[0]).id,
+    multiPayer: payerRows.length > 1, payAmt: Object.fromEntries(payerRows.map(p => [p.member_id, Number(p.amount) || 0])),
     mode: hasItems ? "items" : "exact",
-    total: Number(e.total) || 0, among: [...allIds], exact: {},
+    total: Number(e.total) || 0, among: [...allIds], exact: {}, pct: {}, parts: {},
     items: (e.items || []).slice().sort((a, b) => a.position - b.position)
              .map(it => ({ name: it.name || "", qty: Number(it.qty) || 1, unitPrice: Number(it.unit_price) || 0, consumers: (it.shares || []).map(s => s.member_id) })),
     serviceOn: Number(e.service_rate) > 0, serviceRate: Number(e.service_rate) || 0.10,
     couvert: Number(e.couvert) || 0, discount: Number(e.discount) || 0, billTotal: null,
-    category: e.category || "", note: e.note || "", allIds,
+    category: e.category || "", note: e.note || "", receipt: e.receipt || null, allIds,
   };
   (e.shares || []).forEach(s => { DRAFT.exact[s.member_id] = Number(s.amount) || 0; });   // modo Valores reproduz o rateio salvo
   paintNewExpense();
@@ -563,11 +566,19 @@ function paintNewExpense(){
   const modeTab = (key, label) => `<span class="chip ${d.mode===key?"on":""}" data-mode="${key}">${label}</span>`;
 
   let panel = "";
+  const totalField = `<label class="fld"><span>Valor total (R$)</span><input id="neTotal" type="number" inputmode="decimal" value="${d.total||""}" step="0.01" placeholder="0,00"></label>`;
   if(d.mode === "equal"){
-    panel = `
-      <label class="fld"><span>Valor total (R$)</span><input id="neTotal" type="number" inputmode="decimal" value="${d.total||""}" step="0.01" placeholder="0,00"></label>
+    panel = `${totalField}
       <div class="sm mut" style="margin:8px 0 4px">Dividir igual entre — toque pra incluir/tirar:</div>
       <div class="row wrap" style="gap:6px">${MEMBERS.map(m => `<span class="chip ${d.among.includes(m.id)?"on":""}" data-among="${m.id}">${esc(m.display_name)}</span>`).join("")}</div>`;
+  } else if(d.mode === "pct"){
+    panel = `${totalField}
+      <div class="sm mut" style="margin:8px 0 4px">Porcentagem de cada um (deve somar 100%):</div>
+      ${MEMBERS.map(m => `<label class="fld"><span>${esc(m.display_name)}</span><div class="row"><input data-pct="${m.id}" type="number" inputmode="decimal" value="${d.pct[m.id] ?? ""}" step="1" style="width:96px" placeholder="0"><span class="mut">%</span></div></label>`).join("")}`;
+  } else if(d.mode === "parts"){
+    panel = `${totalField}
+      <div class="sm mut" style="margin:8px 0 4px">Partes de cada um (ex.: 2 e 1 → o primeiro paga o dobro):</div>
+      ${MEMBERS.map(m => `<label class="fld"><span>${esc(m.display_name)}</span><input data-parts="${m.id}" type="number" inputmode="decimal" value="${d.parts[m.id] ?? ""}" step="1" min="0" style="width:96px" placeholder="0"></label>`).join("")}`;
   } else if(d.mode === "exact"){
     panel = `<div class="sm mut" style="margin-bottom:8px">Quanto cada um deve (deixe em branco quem não entra):</div>
       ${MEMBERS.map(m => `<label class="fld"><span>${esc(m.display_name)}</span><input data-exact="${m.id}" type="number" inputmode="decimal" value="${d.exact[m.id] ?? ""}" step="0.01" placeholder="0,00"></label>`).join("")}`;
@@ -608,14 +619,25 @@ function paintNewExpense(){
         <label class="fld"><span>Nota (opcional)</span><input id="neNote" value="${esc(d.note)}" placeholder="observação"></label>
       </div>
     </div>
+    ${d.multiPayer ? `
     <div class="card">
-      <h3>Quem pagou</h3>
-      <select id="nePayer">${MEMBERS.map(m => `<option value="${m.id}" ${m.id===d.payer?"selected":""}>${esc(m.display_name)}</option>`).join("")}</select>
-    </div>
+      <div class="between"><h3 style="margin:0">Quem pagou</h3><a class="link" id="nePayToggle">um só pagou</a></div>
+      <div class="sm mut" style="margin:6px 0 4px">Quanto cada um pagou:</div>
+      ${MEMBERS.map(m => `<label class="fld"><span>${esc(m.display_name)}</span><input data-pay="${m.id}" type="number" inputmode="decimal" value="${d.payAmt[m.id] ?? ""}" step="0.01" placeholder="0,00"></label>`).join("")}
+      <div class="sm" id="nePaySum"></div>
+    </div>` : `
+    <div class="card">
+      <div class="between"><h3 style="margin:0">Quem pagou</h3><a class="link" id="nePayToggle">mais de um pagou?</a></div>
+      <select id="nePayer" style="margin-top:8px">${MEMBERS.map(m => `<option value="${m.id}" ${m.id===d.payer?"selected":""}>${esc(m.display_name)}</option>`).join("")}</select>
+    </div>`}
     <div class="card">
       <h3>Como dividir</h3>
-      <div class="row wrap" style="gap:6px;margin-bottom:12px">${modeTab("equal","Igual")}${modeTab("items","Por item")}${modeTab("exact","Valores")}</div>
+      <div class="row wrap" style="gap:6px;margin-bottom:12px">${modeTab("equal","Igual")}${modeTab("pct","%")}${modeTab("parts","Partes")}${modeTab("exact","Valores")}${modeTab("items","Por item")}</div>
       ${panel}
+    </div>
+    <div class="card">
+      <div class="between"><h3 style="margin:0">Recibo (foto)</h3>${d.receipt ? `<a class="link" id="neRcptRm">remover</a>` : ""}</div>
+      ${d.receipt ? `<img src="${d.receipt}" alt="recibo" style="max-width:100%;border-radius:10px;margin-top:8px">` : `<button class="btn sec block" id="neRcpt" style="margin-top:8px">📎 Anexar foto do recibo</button>`}
     </div>
     <div class="card" id="nePreview"></div>
     <button class="btn block fab" id="neSave">${d.editId ? "Salvar alterações" : "Salvar despesa"}</button>`;
@@ -625,7 +647,15 @@ function paintNewExpense(){
   $("#neDate").oninput = e => d.spent_at = e.target.value;
   $("#neCat").onchange = e => d.category = e.target.value;
   $("#neNote").oninput = e => d.note = e.target.value;
-  $("#nePayer").onchange = e => d.payer = e.target.value;
+  if($("#nePayer")) $("#nePayer").onchange = e => d.payer = e.target.value;
+  if($("#nePayToggle")) $("#nePayToggle").onclick = () => {
+    d.multiPayer = !d.multiPayer;
+    if(d.multiPayer && !Object.keys(d.payAmt).length) d.payAmt = { [d.payer]: round2(draftSplit().total) };   // semente: quem era o pagador único
+    paintNewExpense();
+  };
+  app.querySelectorAll("[data-pay]").forEach(inp => inp.oninput = e => { d.payAmt[inp.dataset.pay] = parseMoney(e.target.value); refreshPreview(); });
+  if($("#neRcpt")) $("#neRcpt").onclick = attachReceipt;
+  if($("#neRcptRm")) $("#neRcptRm").onclick = () => { d.receipt = null; paintNewExpense(); };
   $("#neBack").onclick = () => go(`g/${d.groupId}`);
   $("#neSave").onclick = saveExpense;
   app.querySelectorAll("[data-mode]").forEach(el => el.onclick = () => { d.mode = el.dataset.mode; paintNewExpense(); });
@@ -633,6 +663,12 @@ function paintNewExpense(){
   if(d.mode === "equal"){
     $("#neTotal").oninput = e => { d.total = parseMoney(e.target.value); refreshPreview(); };
     app.querySelectorAll("[data-among]").forEach(ch => ch.onclick = () => { const id = ch.dataset.among, a = d.among, k = a.indexOf(id); if(k>=0) a.splice(k,1); else a.push(id); ch.classList.toggle("on"); refreshPreview(); });
+  } else if(d.mode === "pct"){
+    $("#neTotal").oninput = e => { d.total = parseMoney(e.target.value); refreshPreview(); };
+    app.querySelectorAll("[data-pct]").forEach(inp => inp.oninput = e => { d.pct[inp.dataset.pct] = parseFloat(e.target.value) || 0; refreshPreview(); });
+  } else if(d.mode === "parts"){
+    $("#neTotal").oninput = e => { d.total = parseMoney(e.target.value); refreshPreview(); };
+    app.querySelectorAll("[data-parts]").forEach(inp => inp.oninput = e => { d.parts[inp.dataset.parts] = parseFloat(e.target.value) || 0; refreshPreview(); });
   } else if(d.mode === "exact"){
     app.querySelectorAll("[data-exact]").forEach(inp => inp.oninput = e => { d.exact[inp.dataset.exact] = parseMoney(e.target.value); refreshPreview(); });
   } else {
@@ -655,11 +691,15 @@ function paintNewExpense(){
 }
 function draftSplit(){
   const d = DRAFT;
-  if(d.mode === "equal"){
+  if(d.mode === "equal" || d.mode === "pct" || d.mode === "parts"){
     const T = Number(d.total) || 0;
-    const among = d.among.filter(id => d.allIds.includes(id));
-    if(T <= 0 || !among.length){ return { shares: Object.fromEntries(d.allIds.map(id => [id, 0])), subtotal: T>0?T:0, total: T>0?T:0, serviceAmount: 0 }; }
-    return computeShares(d.allIds, [{ qty: 1, unitPrice: T, consumers: among }], {});   // reusa o reconciliador de centavos
+    let weights = {};
+    if(d.mode === "equal") d.among.forEach(id => { if(d.allIds.includes(id)) weights[id] = 1; });
+    else if(d.mode === "pct") d.allIds.forEach(id => { const v = Number(d.pct[id]) || 0; if(v > 0) weights[id] = v; });
+    else d.allIds.forEach(id => { const v = Number(d.parts[id]) || 0; if(v > 0) weights[id] = v; });
+    const shares = allocateByWeights(T, weights);
+    d.allIds.forEach(id => { if(!(id in shares)) shares[id] = 0; });
+    return { shares, subtotal: T > 0 ? round2(T) : 0, total: T > 0 ? round2(T) : 0, serviceAmount: 0 };
   }
   if(d.mode === "exact"){
     const shares = {}; let total = 0;
@@ -680,10 +720,18 @@ function refreshPreview(){
   const sub = d.mode === "items"
     ? `<div class="sm mut">Subtotal ${brl(r.subtotal)}${d.serviceOn?` · serviço ${brl(r.serviceAmount)}`:""}${d.couvert?` · couvert ${brl(d.couvert)}`:""}${d.discount?` · -${brl(d.discount)}`:""}</div>`
     : "";
+  const paidBy = d.multiPayer
+    ? "Pago por " + (d.allIds.filter(id => (Number(d.payAmt[id])||0) > 0).map(id => `${esc(nameOf(id))} ${brl(Number(d.payAmt[id])||0)}`).join(", ") || "—")
+    : `Pago por <b>${esc(nameOf(d.payer))}</b>`;
   $("#nePreview").innerHTML = `<h3>Prévia da divisão</h3>${check}${sub}
     ${rows || '<p class="sm mut">Informe um valor pra ver a divisão.</p>'}
     <div class="between" style="margin-top:8px"><span class="b">Total</span><span class="b">${brl(r.total)}</span></div>
-    <div class="sm mut" style="margin-top:4px">Pago por <b>${esc(nameOf(d.payer))}</b></div>`;
+    <div class="sm mut" style="margin-top:4px">${paidBy}</div>`;
+  if(d.multiPayer && $("#nePaySum")){
+    const paid = d.allIds.reduce((s, id) => s + (Number(d.payAmt[id])||0), 0);
+    const off = Math.abs(round2(paid) - round2(r.total)) > 0.01;
+    $("#nePaySum").innerHTML = `<span class="${off?"":"mut"}" style="${off?"color:var(--warn)":""}">pago ${brl(paid)} de ${brl(r.total)}${off?" — precisa bater o total":" ✓"}</span>`;
+  }
 }
 async function saveExpense(){
   const d = DRAFT, r = draftSplit();
@@ -695,14 +743,25 @@ async function saveExpense(){
         shares: (it.consumers.length ? it.consumers : d.allIds).map(mid => ({ member_id: mid, weight: 1 })),
       }))
     : [];
+  let payers;
+  if(d.multiPayer){
+    const paid = d.allIds.reduce((s, mid) => s + (Number(d.payAmt[mid])||0), 0);
+    if(Math.abs(round2(paid) - round2(r.total)) > 0.05){ toast(`Os pagadores somam ${brl(paid)}, mas o total é ${brl(r.total)}.`, 4500); return; }
+    payers = d.allIds.filter(mid => (Number(d.payAmt[mid])||0) > 0).map(mid => ({ member_id: mid, amount: round2(Number(d.payAmt[mid])||0) }));
+    if(!payers.length){ toast("Diga quanto cada um pagou"); return; }
+    const diff = Math.round(round2(r.total)*100) - payers.reduce((s, p) => s + Math.round(p.amount*100), 0);   // joga o resíduo no maior pagador
+    if(diff !== 0){ let bi = 0; payers.forEach((p, i) => { if(p.amount > payers[bi].amount) bi = i; }); payers[bi].amount = round2(payers[bi].amount + diff/100); }
+  } else {
+    payers = [{ member_id: d.payer, amount: round2(r.total) }];
+  }
   const isItems = d.mode === "items";
   const payload = {
     ...(d.editId ? { id: d.editId } : {}),
     group_id: d.groupId, description: d.description || "Despesa", place: d.place || null, spent_at: d.spent_at,
-    category: d.category || null, note: d.note || null,
+    category: d.category || null, note: d.note || null, receipt: d.receipt || null,
     subtotal: round2(r.subtotal), service_rate: (isItems && d.serviceOn) ? d.serviceRate : 0, service_amount: round2(r.serviceAmount || 0),
     couvert: isItems ? round2(d.couvert) : 0, discount: isItems ? round2(d.discount) : 0, total: round2(r.total),
-    items, payers: [{ member_id: d.payer, amount: round2(r.total) }],
+    items, payers,
     shares: d.allIds.map(mid => ({ member_id: mid, amount: round2(r.shares[mid]||0) })).filter(s => s.amount !== 0),
   };
   fixPennies(payload.shares, payload.total);
@@ -820,6 +879,27 @@ function wantPhoto(kind){
 }
 function pickPhoto(sel){ const inp = $(sel); inp.value = ""; inp.onchange = async () => { if(inp.files?.[0]) await processImage(await fileToImageSafe(inp.files[0])); }; inp.click(); }
 async function fileToImageSafe(file){ try{ return await fileToImage(file); }catch(e){ toast("Imagem inválida"); throw e; } }
+// recibo: miniatura leve (≤1000px, jpeg 0.6) como data URL, pra guardar junto da despesa
+function fileToReceipt(file){
+  return new Promise((resolve, reject) => {
+    const img = new Image();
+    img.onload = () => {
+      let { width: w, height: h } = img; const max = 1000;
+      if(Math.max(w, h) > max){ const s = max / Math.max(w, h); w = Math.round(w*s); h = Math.round(h*s); }
+      const cv = document.createElement("canvas"); cv.width = w; cv.height = h;
+      cv.getContext("2d").drawImage(img, 0, 0, w, h);
+      URL.revokeObjectURL(img.src);
+      resolve(cv.toDataURL("image/jpeg", 0.6));
+    };
+    img.onerror = () => { URL.revokeObjectURL(img.src); reject(new Error("img")); };
+    img.src = URL.createObjectURL(file);
+  });
+}
+function attachReceipt(){
+  const inp = document.createElement("input"); inp.type = "file"; inp.accept = "image/*";
+  inp.onchange = async () => { const f = inp.files?.[0]; if(!f) return; try{ DRAFT.receipt = await fileToReceipt(f); paintNewExpense(); }catch(_){ toast("Imagem inválida"); } };
+  inp.click();
+}
 async function processImage(img){
   if(!img) return;
   const dlg = document.createElement("dialog"); dlg.innerHTML = `<div class="dlg-bd" style="text-align:center"><div class="spin"></div><p class="mut sm">Lendo a foto…</p></div>`;

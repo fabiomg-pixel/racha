@@ -4,6 +4,7 @@
 -- 1) novas colunas
 alter table public.expenses add column if not exists category text;
 alter table public.expenses add column if not exists note     text;
+alter table public.expenses add column if not exists receipt  text;   -- foto do recibo (miniatura, data URL)
 
 -- 2) helper: (re)insere itens/pagadores/rateio de uma despesa a partir do payload jsonb
 create or replace function public._fill_expense_children(eid uuid, payload jsonb)
@@ -47,7 +48,7 @@ begin
 
   insert into public.expenses
     (group_id, description, place, spent_at, subtotal, service_rate, service_amount,
-     couvert, discount, total, category, note, created_by)
+     couvert, discount, total, category, note, receipt, created_by)
   values
     (g, payload->>'description', payload->>'place',
      coalesce((payload->>'spent_at')::date, current_date),
@@ -56,7 +57,7 @@ begin
      coalesce((payload->>'service_amount')::numeric, 0),
      coalesce((payload->>'couvert')::numeric, 0),
      coalesce((payload->>'discount')::numeric, 0),
-     tot, payload->>'category', payload->>'note', auth.uid())
+     tot, payload->>'category', payload->>'note', payload->>'receipt', auth.uid())
   returning id into eid;
 
   perform public._fill_expense_children(eid, payload);
@@ -88,7 +89,8 @@ begin
     discount       = coalesce((payload->>'discount')::numeric, 0),
     total          = tot,
     category       = payload->>'category',
-    note           = payload->>'note'
+    note           = payload->>'note',
+    receipt        = payload->>'receipt'
   where id = eid;
 
   delete from public.expense_items  where expense_id = eid;   -- cascade limpa item_shares

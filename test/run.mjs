@@ -1,6 +1,6 @@
 // Testes dos módulos puros — `node test/run.mjs`. Sem dependências.
 import assert from "node:assert/strict";
-import { computeShares } from "../js/split.js";
+import { computeShares, allocateByWeights } from "../js/split.js";
 import { simplifyDebts, directDebts } from "../js/ledger.js";
 import { buildPixPayload, validatePix, crc16 } from "../js/pix.js";
 import { parseBill } from "../js/parse.js";
@@ -51,6 +51,22 @@ ok("igual com centavo quebrado: 100 entre 3 soma exato", () => {
   const r = computeShares(["a", "b", "c"], [{ qty: 1, unitPrice: 100, consumers: ["a", "b", "c"] }], {});
   assert.equal(sumCents(r.shares), 10000);
   assert.deepEqual(Object.values(r.shares).map(v => Math.round(v * 100)).sort((x, y) => x - y), [3333, 3333, 3334]);
+});
+
+console.log("split.js — allocateByWeights (% e partes)");
+ok("porcentagem 60/40 de 100", () => {
+  const s = allocateByWeights(100, { a: 60, b: 40 });
+  assert.equal(sumCents(s), 10000);
+  assert.equal(s.a, 60); assert.equal(s.b, 40);
+});
+ok("partes 2:1 de 90", () => {
+  const s = allocateByWeights(90, { a: 2, b: 1 });
+  assert.equal(s.a, 60); assert.equal(s.b, 30);
+});
+ok("pesos iguais com centavo quebrado somam exato (100 em 3)", () => {
+  const s = allocateByWeights(100, { a: 1, b: 1, c: 1 });
+  assert.equal(sumCents(s), 10000);
+  assert.deepEqual(Object.values(s).map(v => Math.round(v * 100)).sort((x, y) => x - y), [3333, 3333, 3334]);
 });
 
 console.log("ledger.js");
