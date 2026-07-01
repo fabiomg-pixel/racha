@@ -106,16 +106,28 @@ export async function saveProfile(patch){
 export async function myGroups(){
   // grupos onde sou membro (via group_members) — traz o grupo aninhado
   const rows = unwrap(await sb().from("group_members")
-    .select("group:groups(id,name,currency,created_by,created_at)")
+    .select("group:groups(id,name,currency,created_by,created_at,kind)")
     .order("created_at", { ascending: false }));
   return (rows || []).map(r => r.group).filter(Boolean);
 }
-export async function createGroup(name){
+export async function createGroup(name, kind = "group"){
   const u = await currentUser(); if(!u) throw new Error("não autenticado");
-  const g = unwrap(await sb().from("groups").insert({ name: name.trim(), created_by: u.id }).select().single());
+  const g = unwrap(await sb().from("groups").insert({ name: name.trim(), created_by: u.id, kind }).select().single());
   const prof = await getMyProfile();
   await sb().from("group_members").insert({ group_id: g.id, user_id: u.id, display_name: prof?.name || "Eu", role: "admin" });
   return g;
+}
+// um "amigo" = grupo de 2 (eu + fantasma com o nome dele); kind='friend'
+export async function createFriend(name){
+  const g = await createGroup(name, "friend");
+  await addGhost(g.id, name);
+  return g;
+}
+// linhas de despesa (com pagadores e rateio) pra montar o CSV
+export async function groupExport(groupId){
+  return unwrap(await sb().from("expenses")
+    .select("spent_at,description,category,place,total,payers:expense_payers(member_id,amount),shares:expense_shares(member_id,amount)")
+    .eq("group_id", groupId).order("spent_at"));
 }
 export async function renameGroup(groupId, name){
   return unwrap(await sb().from("groups").update({ name: name.trim() }).eq("id", groupId).select().single());

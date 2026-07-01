@@ -409,18 +409,26 @@ async function renderGroups(){
         <div><div class="sm mut">a pagar</div><div class="b" style="font-size:20px;color:var(--warn)">${brl(pay)}</div></div>
       </div>
     </div>` : "";
-  const list = groups.length ? nets.map(({ g, net }) => {
+  const row = ({ g, net }, friend) => {
     const cls = Math.abs(net) < 0.005 ? "zero" : net > 0 ? "pos" : "neg";
     const txt = Math.abs(net) < 0.005 ? "quite" : (net > 0 ? "recebe " : "deve ") + brl(Math.abs(net));
     return `<div class="listrow" data-g="${g.id}" style="cursor:pointer">
-      <div class="row">${avatar(g.name)}<div><div class="b">${esc(g.name)}</div><div class="sm mut">${esc(g.currency||"BRL")}</div></div></div>
+      <div class="row">${avatar(g.name)}<div><div class="b">${esc(g.name)}</div><div class="sm mut">${friend ? "amigo" : esc(g.currency||"BRL")}</div></div></div>
       <span class="pill ${cls}">${txt}</span></div>`;
-  }).join("") : `<div class="empty">Nenhum grupo ainda.<br>Crie o primeiro — ou lance um racha da aba ao lado.</div>`;
+  };
+  const gNets = nets.filter(x => x.g.kind !== "friend"), fNets = nets.filter(x => x.g.kind === "friend");
+  const gList = gNets.length ? gNets.map(x => row(x, false)).join("") : `<div class="empty">Nenhum grupo ainda.</div>`;
+  const fCard = fNets.length ? `<div class="card"><h3 style="margin:0 0 .4em">Amigos</h3>${fNets.map(x => row(x, true)).join("")}</div>` : "";
   app.innerHTML = `
     ${summary}
-    <div class="card"><h3 style="margin:0 0 .4em">Seus grupos</h3>${list}</div>
+    <div class="card"><h3 style="margin:0 0 .4em">Seus grupos</h3>${gList}</div>
+    ${fCard}
     <div class="card"><h3>Novo grupo</h3>
       <div class="row"><input id="ngName" placeholder="ex.: República, Viagem, Happy hour"><button class="btn" id="ngBtn">Criar</button></div>
+    </div>
+    <div class="card"><h3>Novo amigo (1 a 1)</h3>
+      <p class="sm mut" style="margin:.2em 0">Pra dividir com uma pessoa sem criar grupo. Depois dá pra convidar ela pelo link.</p>
+      <div class="row"><input id="nfName" placeholder="nome do amigo"><button class="btn" id="nfBtn">Add</button></div>
     </div>`;
   app.querySelectorAll("[data-g]").forEach(r => r.onclick = () => go(`g/${r.dataset.g}`));
   $("#ngBtn").onclick = async () => {
@@ -428,6 +436,12 @@ async function renderGroups(){
     $("#ngBtn").disabled = true;
     try{ const g = await db.createGroup(name); go(`g/${g.id}`); }
     catch(e){ console.error(e); toast(e?.message || "Não consegui criar"); $("#ngBtn").disabled = false; }
+  };
+  $("#nfBtn").onclick = async () => {
+    const name = $("#nfName").value.trim(); if(!name){ toast("Diga o nome do amigo"); return; }
+    $("#nfBtn").disabled = true;
+    try{ const g = await db.createFriend(name); go(`g/${g.id}`); }
+    catch(e){ console.error(e); toast(e?.message || "Não consegui criar"); $("#nfBtn").disabled = false; }
   };
 }
 
@@ -470,9 +484,10 @@ async function renderGroup(groupId){
       <div class="between"><h3 style="margin:0">Saldo</h3><a class="link" id="gSettle">acertar →</a></div>
       ${balRows || `<div class="empty">Adicione membros e uma despesa.</div>`}
     </div>
-    <div class="card"><h3>Despesas</h3>${expList}</div>
+    <div class="card"><div class="between"><h3 style="margin:0">Despesas</h3>${expenses.length?`<a class="link" id="gExport">exportar CSV</a>`:""}</div>${expList}</div>
     <div class="card"><h3>Atividade</h3>${actList}</div>
     <button class="btn block fab" id="gNew">+ Nova despesa</button>`;
+  if($("#gExport")) $("#gExport").onclick = () => exportGroupCSV(groupId, group.name, members);
   $("#gNew").onclick = () => go(`g/${groupId}/new`);
   $("#gSettle").onclick = () => go(`g/${groupId}/settle`);
   $("#gMembers").onclick = () => membersDialog(groupId, members);
@@ -496,6 +511,28 @@ function timeAgo(at){
   if(s < 86400) return `há ${Math.floor(s/3600)} h`;
   if(s < 604800) return `há ${Math.floor(s/86400)} d`;
   return fmtDate(at);
+}
+async function exportGroupCSV(groupId, groupName, members){
+  let rows;
+  try{ rows = await db.groupExport(groupId); }catch(e){ console.error(e); toast("Não consegui exportar"); return; }
+  if(!rows.length){ toast("Sem despesas pra exportar"); return; }
+  const q = v => `"${String(v ?? "").replace(/"/g, '""')}"`;
+  const nameOf = id => members.find(m => m.id === id)?.display_name || "?";
+  const head = ["Data", "Descrição", "Categoria", "Local", "Total", "Pago por", ...members.map(m => m.display_name)];
+  const lines = [head.map(q).join(",")];
+  rows.forEach(r => {
+    const paid = (r.payers || []).map(p => `${nameOf(p.member_id)}: ${Number(p.amount).toFixed(2)}`).join("; ");
+    const by = {}; (r.shares || []).forEach(s => { by[s.member_id] = Number(s.amount).toFixed(2); });
+    const line = [r.spent_at, r.description || "", r.category || "", r.place || "", Number(r.total).toFixed(2), paid, ...members.map(m => by[m.id] || "")];
+    lines.push(line.map(q).join(","));
+  });
+  const blob = new Blob(["﻿" + lines.join("\r\n")], { type: "text/csv;charset=utf-8" });   // BOM + CRLF: Excel abre com acento
+  const a = document.createElement("a");
+  a.href = URL.createObjectURL(blob);
+  a.download = `racha-${(groupName || "grupo").replace(/[^a-z0-9]+/gi, "-").toLowerCase()}.csv`;
+  document.body.appendChild(a); a.click(); a.remove();
+  setTimeout(() => URL.revokeObjectURL(a.href), 1000);
+  toast("CSV baixado ✓");
 }
 
 function inviteLink(groupId){
@@ -552,9 +589,23 @@ async function expenseDialog(expId, groupId){
     <h3 style="margin-top:14px">Comentários</h3>
     <div id="eComments">${commentHtml(comments)}</div>
     <div class="row" style="margin-top:8px"><input id="eCmt" placeholder="escrever um comentário…" class="grow"><button class="btn sm" id="eCmtBtn">Enviar</button></div>
-    <div class="row" style="margin-top:16px"><button class="btn sec grow" id="eClose">Fechar</button><button class="btn grow" id="eEdit">Editar</button><button class="btn" id="eDel" style="background:var(--danger)">Excluir</button></div>
+    <button class="btn sec block" id="eRepeat" style="margin-top:14px">↻ Repetir esta despesa (hoje)</button>
+    <div class="row" style="margin-top:10px"><button class="btn sec grow" id="eClose">Fechar</button><button class="btn grow" id="eEdit">Editar</button><button class="btn" id="eDel" style="background:var(--danger)">Excluir</button></div>
   </div>`;
   const close = () => { dlg.close(); dlg.remove(); };
+  const repeat = async () => {
+    const payload = {
+      group_id: groupId, description: e.description || "Despesa", place: e.place || null, spent_at: todayISO(),
+      category: e.category || null, note: e.note || null, receipt: null,
+      subtotal: Number(e.subtotal)||0, service_rate: Number(e.service_rate)||0, service_amount: Number(e.service_amount)||0,
+      couvert: Number(e.couvert)||0, discount: Number(e.discount)||0, total: Number(e.total)||0,
+      items: (e.items||[]).map((it, i) => ({ name: it.name || "item", qty: Number(it.qty)||1, unit_price: Number(it.unit_price)||0, position: i, shares: (it.shares||[]).map(s => ({ member_id: s.member_id, weight: Number(s.weight)||1 })) })),
+      payers: (e.payers||[]).map(p => ({ member_id: p.member_id, amount: Number(p.amount)||0 })),
+      shares: (e.shares||[]).map(s => ({ member_id: s.member_id, amount: Number(s.amount)||0 })),
+    };
+    await guard(() => db.saveExpense(payload), "Não consegui repetir");
+    close(); toast("Despesa repetida (hoje) ✓"); renderGroup(groupId);
+  };
   const wireDelC = () => dlg.querySelectorAll("[data-delc]").forEach(a => a.onclick = async () => { await guard(() => db.deleteComment(a.dataset.delc), "Não consegui apagar"); refreshComments(); });
   const refreshComments = async () => { const list = await db.expenseComments(expId).catch(() => []); dlg.querySelector("#eComments").innerHTML = commentHtml(list); wireDelC(); };
   const sendComment = async () => {
@@ -567,6 +618,7 @@ async function expenseDialog(expId, groupId){
   dlg.querySelector("#eClose").onclick = close;
   dlg.querySelector("#eEdit").onclick = () => { close(); go(`g/${groupId}/e/${expId}`); };
   dlg.querySelector("#eDel").onclick = async () => { if(!confirm("Excluir esta despesa?")) return; await guard(() => db.deleteExpense(expId), "Não consegui excluir"); close(); renderGroup(groupId); };
+  dlg.querySelector("#eRepeat").onclick = repeat;
   dlg.querySelector("#eCmtBtn").onclick = sendComment;
   dlg.querySelector("#eCmt").addEventListener("keydown", ev => { if(ev.key === "Enter") sendComment(); });
   wireDelC();
