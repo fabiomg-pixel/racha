@@ -6,10 +6,13 @@ import { buildPixPayload, validatePix, crc16 } from "../js/pix.js";
 import { parseBill } from "../js/parse.js";
 import { parseMoney } from "../js/money.js";
 import { normalizeSupabaseUrl } from "../js/db.js";
+import { createCouple, buildExpense, entryNet, ledgerBalances, coupleSummary, createStore, toRpcPayload } from "../js/model.js";
 
 let pass = 0;
 const ok = (name, fn) => { fn(); pass++; console.log("  ok —", name); };
 const sumCents = obj => Object.values(obj).reduce((s, v) => s + Math.round(v * 100), 0);
+const toMapAmt = arr => Object.fromEntries(arr.map(x => [x.id, x.amount]));      // [{id,amount}] -> {id:amount}
+const mem = () => { const m = new Map(); return { getItem: k => (m.has(k) ? m.get(k) : null), setItem: (k, v) => m.set(k, v), removeItem: k => m.delete(k) }; };
 
 console.log("split.js");
 ok("rateio soma exatamente o total (serviço + couvert + desconto)", () => {
@@ -143,6 +146,74 @@ ok("normalizeSupabaseUrl conserta os erros comuns", () => {
   assert.equal(normalizeSupabaseUrl("https://supabase.com/dashboard/project/abcdefghijklmnop/auth/users"), good);
   assert.equal(normalizeSupabaseUrl(good + "/rest/v1/"), good);                           // colou o endpoint REST
   assert.equal(normalizeSupabaseUrl(good + "/auth/v1"), good);
+});
+
+console.log("model.js — átomo rápido (sem conta) + histórico do casal");
+ok("átomo rápido: eu pago 100, igual entre 2 → cada um 50; net soma zero", () => {
+  const e = buildExpense({ description: "Mercado", amount: 100, method: "equal", participants: ["me", "ana"], payers: "me" });
+  assert.equal(e.total, 100);
+  assert.equal(sumCents(toMapAmt(e.shares)), 10000);
+  const sh = toMapAmt(e.shares);
+  assert.equal(sh.me, 50); assert.equal(sh.ana, 50);
+  const n = entryNet(e);
+  assert.equal(n.me, 50); assert.equal(n.ana, -50);                 // eu paguei, ela me deve
+  assert.equal(Object.values(n).reduce((s, v) => s + Math.round(v * 100), 0), 0);
+});
+
+ok("átomo % 70/30 de 200, quem paga não é quem escreve", () => {
+  const e = buildExpense({ amount: 200, method: "pct", participants: ["a", "b"], weights: { a: 70, b: 30 }, payers: "b" });
+  assert.equal(toMapAmt(e.shares).a, 140);
+  assert.equal(toMapAmt(e.shares).b, 60);
+  const n = entryNet(e);
+  assert.equal(n.b, 140);                                            // b pagou 200, devia 60 → +140
+  assert.equal(n.a, -140);
+});
+
+ok("histórico do casal acumula saldo e o acerto zera", () => {
+  const store = createStore(mem());
+  const c = createCouple("Fábio", "Ana", { myPix: { key: "x", name: "F" } });
+  store.save(c);
+  const me = c.people[0].id, ana = c.people[1].id;
+  store.addExpense(c.id, { description: "Mercado", amount: 100, method: "equal", payers: me });  // Ana deve 50
+  store.addExpense(c.id, { description: "Jantar",  amount: 60,  method: "equal", payers: ana }); // eu devo 30
+  let bal = ledgerBalances(store.get(c.id));
+  assert.equal(bal[me], 20); assert.equal(bal[ana], -20);           // líquido: Ana me deve 20
+  const sum = coupleSummary(store.get(c.id));
+  assert.equal(sum.from, ana); assert.equal(sum.to, me); assert.equal(sum.amount, 20);
+  store.addSettlement(c.id, ana, me, 20);                           // Ana me paga 20
+  bal = ledgerBalances(store.get(c.id));
+  assert.ok(Math.abs(bal[me]) < 0.005 && Math.abs(bal[ana]) < 0.005);
+  assert.equal(coupleSummary(store.get(c.id)), null);              // quite
+});
+
+ok("divisão por item alimenta o casal (quem comeu o quê)", () => {
+  const store = createStore(mem());
+  const c = createCouple("Fábio", "Ana"); store.save(c);
+  const me = c.people[0].id, ana = c.people[1].id;
+  store.addExpense(c.id, { description: "Restaurante", method: "item", payers: me,
+    items: [{ name: "Picanha", qty: 1, unitPrice: 60, consumers: [me] }, { name: "Suco", qty: 1, unitPrice: 30, consumers: [me, ana] }] });
+  const bal = ledgerBalances(store.get(c.id));                      // eu devo 60+15=75, ela 15; paguei 90
+  assert.equal(bal[me], 15); assert.equal(bal[ana], -15);
+});
+
+ok("histórico persiste: relê do mesmo backend sem perder saldo", () => {
+  const backend = mem();
+  const store = createStore(backend);
+  const c = createCouple("A", "B"); store.save(c);
+  const a = c.people[0].id;
+  store.addExpense(c.id, { amount: 40, method: "equal", payers: a });
+  const before = ledgerBalances(store.get(c.id));
+  const store2 = createStore(backend);                             // simula recarregar o app
+  assert.deepEqual(ledgerBalances(store2.get(c.id)), before);
+});
+
+ok("toRpcPayload mapeia o átomo pro Supabase (member_id, soma bate)", () => {
+  const e = buildExpense({ description: "X", amount: 100, method: "equal", participants: ["me", "ana"], payers: "me", category: "Mercado" });
+  const p = toRpcPayload("grp1", e, { me: "m1", ana: "m2" });
+  assert.equal(p.group_id, "grp1");
+  assert.equal(p.category, "Mercado");
+  assert.equal(p.payers[0].member_id, "m1");
+  assert.equal(sumCents(Object.fromEntries(p.shares.map(s => [s.member_id, s.amount]))), 10000);
 });
 
 console.log(`\n${pass} testes passaram ✓`);
