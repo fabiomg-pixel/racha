@@ -1,7 +1,8 @@
-// Racha — controlador único (PWA estático, sem build). Duas abas:
+// Racha — controlador único (PWA estático, sem build). Três abas:
 //  • Racha  = calculadora de UMA conta (local, funciona sem login)
-//  • Grupos = livro-razão (Supabase): saldo acumulado, acerto por Pix
-// Ponte: o resultado do Racha pode ser "lançado" como despesa de um grupo.
+//  • Casal  = livro-razão LOCAL do casal (js/model.js + localStorage; sem conta, uma só neste aparelho)
+//  • Grupos = livro-razão multiusuário (Supabase): saldo acumulado, acerto por Pix
+// Pontes: o resultado do Racha pode ir pro Casal ("Guardar no casal") ou virar despesa de um grupo.
 import * as db from "./db.js";
 import { ocrImage, ocrConfigured, ocrError, fileToImage } from "./ocr.js";
 import { computeShares, allocateByWeights } from "./split.js";
@@ -9,6 +10,7 @@ import { simplifyDebts, netFromRows } from "./ledger.js";
 import { buildPixPayload } from "./pix.js";
 import { parseBill } from "./parse.js";
 import { parseMoney, brl } from "./money.js";
+import { createCouple, buildExpense, entryNet, ledgerBalances, coupleSummary, createStore, addEntry, replaceEntry, removeEntry } from "./model.js";
 
 const $ = s => document.querySelector(s);
 const app = $("#app");
@@ -85,6 +87,7 @@ function paintAcct(){
 }
 function wireTabs(){
   $("#tabRacha").onclick = () => go("");
+  $("#tabCasal").onclick = () => go("casal");
   $("#tabGrupos").onclick = () => go("grupos");
 }
 function wireHeader(){
@@ -97,16 +100,22 @@ function wireHeader(){
 
 /* ============================ router ============================ */
 function parseHash(){ return { parts: location.hash.replace(/^#\/?/, "").split("/").filter(Boolean) }; }
-function activeTab(){ const h = location.hash.replace(/^#\/?/, ""); return (h.startsWith("grupos") || h.startsWith("g/") || h.startsWith("join")) ? "grupos" : "racha"; }
+function activeTab(){
+  const h = location.hash.replace(/^#\/?/, "");
+  if(h.startsWith("casal")) return "casal";
+  return (h.startsWith("grupos") || h.startsWith("g/") || h.startsWith("join")) ? "grupos" : "racha";
+}
 const go = hash => { location.hash = hash; };
 
 function route(){
   const tab = activeTab();
   $("#tabRacha").classList.toggle("on", tab === "racha");
+  $("#tabCasal").classList.toggle("on", tab === "casal");
   $("#tabGrupos").classList.toggle("on", tab === "grupos");
   ITEM_SINK = null;
   if(LIVE){ db.unsubscribe(LIVE); LIVE = null; }   // encerra o realtime da tela anterior
   if(tab === "racha") return renderRacha();
+  if(tab === "casal") return routeCasal();
   const { parts } = parseHash();
   if(parts[0] === "join" && parts[1]) return renderJoin(parts[1]);
   if(!db.hasConfig()) return renderNeedConfig();
@@ -189,9 +198,12 @@ function renderRacha(){
 
     <div class="row" style="margin-top:4px">
       <button class="btn sec grow" id="rcShare">Compartilhar</button>
-      <button class="btn grow" id="rcPush">Lançar no grupo →</button>
+      <button class="btn grow" id="rcCouple">💑 Guardar no casal</button>
     </div>
-    <button class="btn ghost block" id="rcReset" style="margin-top:8px">Recomeçar</button>`;
+    <div class="row" style="margin-top:8px">
+      <button class="btn ghost grow" id="rcPush">Lançar num grupo →</button>
+      <button class="btn ghost grow" id="rcReset">Recomeçar</button>
+    </div>`;
 
   $("#rcCouvert").oninput = e => { CALC.couvert = parseMoney(e.target.value); refreshCalc(); };
   $("#rcDisc").oninput = e => { CALC.discount = parseMoney(e.target.value); refreshCalc(); };
@@ -215,6 +227,7 @@ function renderRacha(){
   });
 
   $("#rcShare").onclick = shareCalc;
+  $("#rcCouple").onclick = saveCalcToCouple;
   $("#rcPush").onclick = launchToGroup;
   $("#rcReset").onclick = () => { if(confirm("Recomeçar? Apaga itens e pessoas.")){ CALC = { people:[], items:[], serviceOn:true, serviceRate:0.10, couvert:0, discount:0, billTotal:null }; saveCalc(); renderRacha(); } };
   refreshCalc();
@@ -323,6 +336,344 @@ async function pushCalcToGroup(groupId, payerPersonId, description, r){
   };
   fixPennies(payload.shares, payload.total);
   await db.saveExpense(payload);
+}
+
+/* ====================================================================== */
+/* ============================ ABA CASAL ============================= */
+/* ====================================================================== */
+// Livro-razão LOCAL do casal: js/model.js + localStorage. Sem conta, sem Supabase.
+// Um casal só, neste aparelho; o(a) parceiro(a) é só um nome (+ Pix opcional).
+const STORE = createStore();
+function getCouple(){ return STORE.list().find(l => l.kind === "couple") || null; }
+const meOf = c => c.people.find(p => p.isMe) || c.people[0];
+const otherOf = c => c.people.find(p => !p.isMe) || c.people[1];
+const firstName = n => String(n || "").trim().split(/\s+/)[0] || "?";
+
+function routeCasal(){
+  const { parts } = parseHash();                     // casal · casal/new · casal/e/<id>
+  if(parts[1] === "new") return renderCoupleExpense(null);
+  if(parts[1] === "e" && parts[2]) return renderCoupleExpense(parts[2]);
+  return renderCasal();
+}
+
+function renderCasal(){
+  const c = getCouple();
+  if(!c) return renderCoupleSetup(null);
+  const me = meOf(c), other = otherOf(c), you = firstName(other.name);
+  const mine = round2(ledgerBalances(c)[me.id] || 0);          // >0: me devem · <0: eu devo
+  const head = Math.abs(mine) < 0.005 ? `Vocês estão quites ✓`
+    : mine > 0 ? `<b>${esc(you)}</b> te deve <b style="color:var(--okink)">${brl(mine)}</b>`
+    : `Você deve <b style="color:var(--warn)">${brl(-mine)}</b> a <b>${esc(you)}</b>`;
+  const entries = c.entries.slice().reverse().sort((a, b) => String(b.spentAt || "").localeCompare(String(a.spentAt || "")));   // mais recente primeiro
+  const eff = n => Math.abs(n) < 0.005 ? `<span class="pill zero">0</span>` : n > 0 ? `<span class="pill pos">+${brl(n)}</span>` : `<span class="pill neg">${brl(n)}</span>`;
+  const rows = entries.map(e => {
+    const n = entryNet(e)[me.id] || 0;                          // efeito no MEU saldo
+    if(e.type === "settlement"){
+      const who = e.from === me.id ? `Você pagou ${brl(e.amount)} a ${esc(you)}` : `${esc(you)} te pagou ${brl(e.amount)}`;
+      return `<div class="listrow" data-entry="${e.id}" style="cursor:pointer"><div class="row"><span style="font-size:17px">💸</span><div><div class="b">${who}</div><div class="sm mut">${fmtDate(e.spentAt)} · acerto</div></div></div>${eff(n)}</div>`;
+    }
+    const payer = (e.payers || []).map(p => p.id === me.id ? "você" : you).join(" e ");
+    return `<div class="listrow" data-entry="${e.id}" style="cursor:pointer"><div><div class="b">${esc(e.description || "Despesa")}</div><div class="sm mut">${fmtDate(e.spentAt)}${e.category ? " · " + esc(e.category) : ""} · ${brl(e.total)} · pagou ${esc(payer)}</div></div>${eff(n)}</div>`;
+  }).join("");
+  app.innerHTML = `
+    <div class="card">
+      <div class="between"><h2 style="margin:0">${esc(c.name)}</h2><a class="link sm" id="cpEdit">editar</a></div>
+      <div style="font-size:19px;margin:10px 0 2px">${head}</div>
+      <div class="sm mut">Só neste aparelho · ${c.entries.length} ${c.entries.length === 1 ? "lançamento" : "lançamentos"}</div>
+      ${Math.abs(mine) >= 0.005 ? `<div class="row" style="margin-top:12px"><button class="btn grow" id="cpSettle">${mine > 0 ? "Acertar" : "Acertar (pagar)"}</button>${mine > 0 ? `<button class="btn sec" id="cpNudge">Cobrar</button>` : ""}</div>` : ""}
+    </div>
+    <div class="card"><h3 style="margin:0 0 .4em">Histórico</h3>${rows || `<div class="empty">Nenhum lançamento ainda. Toque em <b>+ Nova despesa</b> — ou racha uma conta na aba <b>Racha</b> e use “Guardar no casal”.</div>`}</div>
+    <button class="btn block fab" id="cpNew">+ Nova despesa</button>`;
+  $("#cpEdit").onclick = () => renderCoupleSetup(c);
+  $("#cpNew").onclick = () => go("casal/new");
+  if($("#cpSettle")) $("#cpSettle").onclick = coupleSettleDialog;
+  if($("#cpNudge")) $("#cpNudge").onclick = () => {
+    let msg = `Oi! Só lembrando do nosso racha: você está com *${brl(mine)}* pra me acertar 🙂`;
+    if(me.pix?.key) msg += `\nMeu Pix: ${me.pix.key}`;
+    window.open(`https://wa.me/?text=${encodeURIComponent(msg)}`, "_blank");
+  };
+  app.querySelectorAll("[data-entry]").forEach(r => r.onclick = () => coupleEntryDialog(r.dataset.entry));
+}
+
+function renderCoupleSetup(c){
+  const me = c ? meOf(c) : null, other = c ? otherOf(c) : null;
+  app.innerHTML = `<div class="card">
+    <h2>${c ? "Editar o casal" : "Vocês dois"}</h2>
+    <p class="mut sm" style="margin-top:0">Fica só neste aparelho, sem conta nem login. Lance as despesas e o app diz quem deve quem.</p>
+    <h3>Você</h3>
+    <label class="fld"><span>Seu nome</span><input id="csMe" value="${esc(me?.name || PROFILE?.name || "")}" placeholder="ex.: Fábio"></label>
+    <label class="fld"><span>Sua chave Pix (opcional — pra receber)</span><input id="csMePix" value="${esc(me?.pix?.key || PROFILE?.pix_key || "")}" placeholder="cpf, e-mail, telefone ou aleatória"></label>
+    <h3 style="margin-top:14px">Parceiro(a)</h3>
+    <label class="fld"><span>Nome</span><input id="csOther" value="${esc(other?.name || "")}" placeholder="ex.: Ana"></label>
+    <label class="fld"><span>Chave Pix (opcional — pra você pagar)</span><input id="csOtherPix" value="${esc(other?.pix?.key || "")}" placeholder="chave Pix de quem você paga"></label>
+    <div class="row" style="margin-top:12px"><button class="btn grow" id="csSave">${c ? "Salvar" : "Começar"}</button>${c ? `<button class="btn sec" id="csCancel">Cancelar</button>` : ""}</div>
+    ${c ? `<button class="btn ghost block" id="csWipe" style="margin-top:10px;color:var(--danger)">Apagar o casal e todo o histórico</button>` : ""}
+  </div>`;
+  $("#csSave").onclick = () => {
+    const meName = $("#csMe").value.trim(), otherName = $("#csOther").value.trim();
+    const mePix = $("#csMePix").value.trim(), otherPix = $("#csOtherPix").value.trim();
+    if(!meName || !otherName){ toast("Preencha os dois nomes"); return; }
+    const pix = (k, n) => k ? { key: k, name: n } : null;
+    if(c){
+      const people = c.people.map(p => p.isMe ? { ...p, name: meName, pix: pix(mePix, meName) } : { ...p, name: otherName, pix: pix(otherPix, otherName) });
+      STORE.save({ ...c, name: `${meName} & ${otherName}`, people });
+    } else {
+      STORE.save(createCouple(meName, otherName, { myPix: pix(mePix, meName), otherPix: pix(otherPix, otherName) }));
+    }
+    toast(c ? "Salvo ✓" : "Casal criado ✓"); renderCasal();
+  };
+  if($("#csCancel")) $("#csCancel").onclick = renderCasal;
+  if($("#csWipe")) $("#csWipe").onclick = () => { if(confirm("Apagar o casal e TODO o histórico deste aparelho? Não dá pra desfazer.")){ STORE.remove(c.id); toast("Apagado"); renderCasal(); } };
+}
+
+/* ---------- nova / editar despesa do casal ---------- */
+let CDRAFT = null;
+function renderCoupleExpense(editId){
+  const c = getCouple(); if(!c) return renderCoupleSetup(null);
+  const me = meOf(c);
+  const d = CDRAFT = { editId: null, description: "", category: "", spentAt: todayISO(), payer: me.id, mode: "equal", total: 0, exact: {}, items: [], serviceOn: false, serviceRate: 0.10, couvert: 0, discount: 0, billTotal: null };
+  if(editId){
+    const e = c.entries.find(x => x.id === editId && x.type === "expense");
+    if(!e){ toast("Despesa não encontrada"); return go("casal"); }
+    d.editId = e.id; d.description = e.description || ""; d.category = e.category || ""; d.spentAt = e.spentAt || todayISO();
+    d.payer = e.payers?.[0]?.id || me.id; d.total = Number(e.total) || 0;
+    if(e.method === "item"){
+      d.mode = "item"; d.items = (e.items || []).map(it => ({ name: it.name || "", qty: it.qty, unitPrice: it.unitPrice, consumers: [...(it.consumers || [])] }));
+      d.serviceOn = (e.opts?.serviceRate || 0) > 0; d.serviceRate = e.opts?.serviceRate || 0.10; d.couvert = e.opts?.couvert || 0; d.discount = e.opts?.discount || 0;
+    }
+    else if((e.participants || []).length === 1) d.mode = e.participants[0] === me.id ? "mine" : "theirs";
+    else if(e.method === "equal") d.mode = "equal";
+    else { d.mode = "exact"; (e.shares || []).forEach(s => { d.exact[s.id] = s.amount; }); }
+  }
+  paintCoupleExpense();
+}
+// o rascunho da tela vira o átomo do model.js — é ele que calcula e valida (soma no centavo)
+function coupleAtom(d, c){
+  const me = meOf(c), other = otherOf(c);
+  const base = { id: d.editId || undefined, description: d.description || "Despesa", category: d.category || null, spentAt: d.spentAt, payers: d.payer };
+  if(d.mode === "equal")  return buildExpense({ ...base, method: "equal", amount: d.total, participants: [me.id, other.id] });
+  if(d.mode === "mine")   return buildExpense({ ...base, method: "equal", amount: d.total, participants: [me.id] });
+  if(d.mode === "theirs") return buildExpense({ ...base, method: "equal", amount: d.total, participants: [other.id] });
+  if(d.mode === "exact")  return buildExpense({ ...base, method: "exact", exact: d.exact, participants: [me.id, other.id] });
+  const items = d.items.filter(it => (Number(it.qty) || 0) > 0 && (Number(it.unitPrice) || 0) > 0);
+  return buildExpense({ ...base, method: "item", participants: [me.id, other.id], items, opts: { serviceRate: d.serviceOn ? d.serviceRate : 0, couvert: d.couvert, discount: d.discount } });
+}
+function paintCoupleExpense(){
+  const d = CDRAFT, c = getCouple(), me = meOf(c), other = otherOf(c), you = firstName(other.name);
+  ITEM_SINK = applyToCouple;
+  const chip = (attr, val, cur, label) => `<span class="chip ${val === cur ? "on" : ""}" data-${attr}="${val}">${label}</span>`;
+  const totalField = `<label class="fld"><span>Valor (R$)</span><input id="ceTotal" type="number" inputmode="decimal" value="${d.total || ""}" step="0.01" placeholder="0,00"></label>`;
+  let panel = "";
+  if(d.mode === "equal" || d.mode === "mine" || d.mode === "theirs"){
+    const hint = d.mode === "equal" ? "Metade pra cada um." : d.mode === "mine" ? "A despesa é toda sua (útil quando o outro pagou por você)." : `A despesa é toda de ${esc(you)}.`;
+    panel = `${totalField}<div class="sm mut">${hint}</div>`;
+  } else if(d.mode === "exact"){
+    panel = `<div class="sm mut" style="margin-bottom:8px">Quanto é de cada um:</div>
+      <div class="grid2">
+        <label class="fld"><span>Eu</span><input data-exact="${me.id}" type="number" inputmode="decimal" value="${d.exact[me.id] ?? ""}" step="0.01" placeholder="0,00"></label>
+        <label class="fld"><span>${esc(you)}</span><input data-exact="${other.id}" type="number" inputmode="decimal" value="${d.exact[other.id] ?? ""}" step="0.01" placeholder="0,00"></label>
+      </div>`;
+  } else {
+    const itemsHtml = d.items.map((it, i) => `
+      <div class="item" data-i="${i}">
+        <div class="row" style="gap:8px">
+          <input data-f="name" value="${esc(it.name)}" placeholder="item" class="grow">
+          <input data-f="qty" type="number" inputmode="decimal" value="${it.qty}" min="0" step="1" style="width:58px">
+          <input data-f="unitPrice" type="number" inputmode="decimal" value="${it.unitPrice}" min="0" step="0.01" style="width:82px">
+          <button class="btn ghost" data-rm="${i}" aria-label="remover">✕</button>
+        </div>
+        <div class="row wrap" style="margin-top:8px;gap:6px">${[me, other].map(p => `<span class="chip ${it.consumers.includes(p.id) ? "on" : ""}" data-mid="${p.id}">${p.id === me.id ? "Eu" : esc(you)}</span>`).join("")}</div>
+      </div>`).join("");
+    panel = `
+      <div class="grid4" style="margin-bottom:10px">
+        <button class="btn sec sm" id="ceCam">📷 Foto</button><button class="btn sec sm" id="ceGal">🖼️ Galeria</button>
+        <button class="btn sec sm" id="ceText">📝 Texto</button><button class="btn sec sm" id="ceManual">＋ Manual</button>
+      </div>
+      <div id="ceItems">${itemsHtml || '<p class="sm mut">Tire a foto da conta (ou cole o texto / adicione manual) e marque quem consumiu cada item.</p>'}</div>
+      <div class="grid2" style="margin-top:12px">
+        <label class="fld"><span>Serviço</span><div class="row"><input id="ceSvc" type="number" inputmode="decimal" value="${Math.round(d.serviceRate * 100)}" step="1" style="width:70px" ${d.serviceOn ? "" : "disabled"}><span class="mut">%</span><span class="chip ${d.serviceOn ? "on" : ""}" id="ceSvcOn">${d.serviceOn ? "incluso" : "sem"}</span></div></label>
+        <label class="fld"><span>Couvert (total)</span><input id="ceCouvert" type="number" inputmode="decimal" value="${d.couvert}" step="0.01"></label>
+      </div>
+      <label class="fld"><span>Desconto (total)</span><input id="ceDisc" type="number" inputmode="decimal" value="${d.discount}" step="0.01"></label>`;
+  }
+  app.innerHTML = `
+    <div class="card">
+      <div class="between"><a class="link" id="ceBack">← casal</a><span class="mut sm">${d.editId ? "editar despesa" : "nova despesa"}</span></div>
+      <label class="fld" style="margin-top:8px"><span>Descrição</span><input id="ceDesc" value="${esc(d.description)}" placeholder="ex.: Mercado, Jantar, Uber"></label>
+      <div class="grid2">
+        <label class="fld"><span>Categoria</span><select id="ceCat"><option value="">— sem categoria —</option>${CATEGORIES.map(x => `<option value="${esc(x)}" ${d.category === x ? "selected" : ""}>${esc(x)}</option>`).join("")}</select></label>
+        <label class="fld"><span>Data</span><input id="ceDate" type="date" value="${d.spentAt}"></label>
+      </div>
+    </div>
+    <div class="card">
+      <h3>Quem pagou</h3>
+      <div class="row wrap" style="gap:6px">${chip("payer", me.id, d.payer, "Eu")}${chip("payer", other.id, d.payer, esc(you))}</div>
+    </div>
+    <div class="card">
+      <h3>Como dividir</h3>
+      <div class="row wrap" style="gap:6px;margin-bottom:12px">${chip("mode", "equal", d.mode, "Meio a meio")}${chip("mode", "mine", d.mode, "Só eu")}${chip("mode", "theirs", d.mode, "Só " + esc(you))}${chip("mode", "exact", d.mode, "Valores")}${chip("mode", "item", d.mode, "Por item")}</div>
+      ${panel}
+    </div>
+    <div class="card" id="cePreview"></div>
+    <button class="btn block fab" id="ceSave">${d.editId ? "Salvar alterações" : "Salvar despesa"}</button>`;
+  $("#ceDesc").oninput = e => d.description = e.target.value;
+  $("#ceCat").onchange = e => d.category = e.target.value;
+  $("#ceDate").oninput = e => d.spentAt = e.target.value;
+  $("#ceBack").onclick = () => go("casal");
+  $("#ceSave").onclick = saveCoupleExpense;
+  app.querySelectorAll("[data-payer]").forEach(el => el.onclick = () => { d.payer = el.dataset.payer; paintCoupleExpense(); });
+  app.querySelectorAll("[data-mode]").forEach(el => el.onclick = () => { d.mode = el.dataset.mode; paintCoupleExpense(); });
+  if($("#ceTotal")) $("#ceTotal").oninput = e => { d.total = parseMoney(e.target.value); refreshCouplePreview(); };
+  app.querySelectorAll("[data-exact]").forEach(inp => inp.oninput = e => { d.exact[inp.dataset.exact] = parseMoney(e.target.value); refreshCouplePreview(); });
+  if(d.mode === "item"){
+    $("#ceCouvert").oninput = e => { d.couvert = parseMoney(e.target.value); refreshCouplePreview(); };
+    $("#ceDisc").oninput = e => { d.discount = parseMoney(e.target.value); refreshCouplePreview(); };
+    $("#ceSvc").oninput = e => { d.serviceRate = (parseFloat(e.target.value) || 0) / 100; refreshCouplePreview(); };
+    $("#ceSvcOn").onclick = () => { d.serviceOn = !d.serviceOn; paintCoupleExpense(); };
+    $("#ceManual").onclick = () => { d.items.push({ name: "", qty: 1, unitPrice: 0, consumers: [me.id, other.id] }); paintCoupleExpense(); };
+    $("#ceText").onclick = textDialog;
+    $("#ceGal").onclick = () => wantPhoto("gal");
+    $("#ceCam").onclick = () => wantPhoto("cam");
+    $("#ceItems").querySelectorAll(".item").forEach(node => {
+      const i = +node.dataset.i;
+      node.querySelectorAll("[data-f]").forEach(inp => inp.oninput = e => { const f = inp.dataset.f; d.items[i][f] = f === "name" ? e.target.value : parseMoney(e.target.value); refreshCouplePreview(); });
+      node.querySelector("[data-rm]").onclick = () => { d.items.splice(i, 1); paintCoupleExpense(); };
+      node.querySelectorAll("[data-mid]").forEach(ch => ch.onclick = () => { const id = ch.dataset.mid, a = d.items[i].consumers, k = a.indexOf(id); if(k >= 0) a.splice(k, 1); else a.push(id); ch.classList.toggle("on"); refreshCouplePreview(); });
+    });
+  }
+  refreshCouplePreview();
+}
+function refreshCouplePreview(){
+  const d = CDRAFT, c = getCouple(), me = meOf(c), other = otherOf(c), you = firstName(other.name);
+  let atom; try{ atom = coupleAtom(d, c); }catch(_){ atom = null; }
+  if(!atom || !(atom.total > 0)){ $("#cePreview").innerHTML = `<h3>Prévia</h3><p class="sm mut">Informe um valor pra ver o efeito no saldo.</p>`; return; }
+  const sh = Object.fromEntries(atom.shares.map(s => [s.id, s.amount]));
+  const n = entryNet(atom)[me.id] || 0;
+  const effect = Math.abs(n) < 0.005 ? `não muda o saldo entre vocês.` : n > 0 ? `<b>${esc(you)}</b> passa a te dever <b style="color:var(--okink)">${brl(n)}</b>` : `você passa a dever <b style="color:var(--warn)">${brl(-n)}</b> a <b>${esc(you)}</b>`;
+  let check = "";
+  if(d.mode === "item" && d.billTotal != null && Math.abs(d.billTotal - atom.total) > 0.05) check = `<div class="banner warn">Os itens somam ${brl(atom.total)}, mas a conta diz ${brl(d.billTotal)} — confira se faltou ou repetiu item.</div>`;
+  else if(d.mode === "item" && d.billTotal != null) check = `<div class="banner ok">✓ Bate com o total da conta (${brl(d.billTotal)}).</div>`;
+  $("#cePreview").innerHTML = `<h3>Prévia</h3>${check}
+    <div class="listrow"><span>Eu</span><span class="b">${brl(sh[me.id] || 0)}</span></div>
+    <div class="listrow"><span>${esc(you)}</span><span class="b">${brl(sh[other.id] || 0)}</span></div>
+    <div class="between" style="margin-top:8px"><span class="b">Total</span><span class="b">${brl(atom.total)}</span></div>
+    <div class="sm" style="margin-top:8px">Pagou <b>${d.payer === me.id ? "você" : esc(you)}</b> → ${effect}</div>`;
+}
+function saveCoupleExpense(){
+  const d = CDRAFT, c = getCouple();
+  let atom; try{ atom = coupleAtom(d, c); }catch(e){ toast(e?.message || "Não consegui montar a despesa"); return; }
+  if(!(atom.total > 0)){ toast(d.mode === "exact" ? "Preencha os valores" : d.mode === "item" ? "Adicione itens com valor" : "Informe o valor"); return; }
+  STORE.save(d.editId ? replaceEntry(c, atom) : addEntry(c, atom));
+  toast(d.editId ? "Despesa atualizada ✓" : "Despesa salva ✓"); go("casal");
+}
+function applyToCouple(parsed){
+  if(!parsed.items?.length){ toast("Não achei itens. Tente manual."); return; }
+  const c = getCouple(), ids = [meOf(c).id, otherOf(c).id], d = CDRAFT;
+  d.mode = "item";   // foto/texto trazem itens → entra no modo "Por item"
+  parsed.items.forEach(p => d.items.push({ name: p.name, qty: p.qty, unitPrice: parseMoney(p.unitPrice ?? p.price ?? 0), consumers: [...ids] }));
+  if(parsed.total > 0) d.billTotal = parsed.total;
+  if(parsed.service){ d.serviceOn = true; if(parsed.service.rate > 0) d.serviceRate = parsed.service.rate / 100; }
+  paintCoupleExpense();
+  toast(`${parsed.items.length} ${parsed.items.length > 1 ? "itens" : "item"} lido(s) ✓`);
+}
+
+/* ---------- detalhe / acerto ---------- */
+function coupleEntryDialog(entryId){
+  const c = getCouple(), me = meOf(c), other = otherOf(c), you = firstName(other.name);
+  const e = c.entries.find(x => x.id === entryId); if(!e) return;
+  const who = id => id === me.id ? "Você" : you;
+  const n = entryNet(e)[me.id] || 0;
+  const effect = Math.abs(n) < 0.005 ? "não mudou o saldo" : n > 0 ? `${esc(you)} ficou devendo ${brl(n)}` : `você ficou devendo ${brl(-n)}`;
+  let body;
+  if(e.type === "settlement"){
+    body = `<h2>💸 Acerto</h2><p class="sm mut" style="margin-top:0">${fmtDate(e.spentAt)}</p>
+      <p><b>${esc(who(e.from))}</b> pagou <b>${brl(e.amount)}</b> ${e.to === me.id ? "a você" : "a " + esc(you)}.</p>`;
+  } else {
+    const items = (e.items || []).map(it => `<div class="listrow"><div><div>${esc(it.name || "item")}</div><div class="sm mut">${Number(it.qty)}× ${brl(it.unitPrice)} · ${(it.consumers || []).map(id => esc(who(id))).join(", ") || "os dois"}</div></div><div>${brl(Number(it.qty) * Number(it.unitPrice))}</div></div>`).join("");
+    const shares = (e.shares || []).map(s => `<div class="listrow"><span>${esc(who(s.id))}</span><span class="b">${brl(s.amount)}</span></div>`).join("");
+    const payer = (e.payers || []).map(p => p.id === me.id ? "você" : esc(you)).join(" e ");
+    body = `<h2>${esc(e.description || "Despesa")}</h2>
+      <p class="sm mut" style="margin-top:0">${fmtDate(e.spentAt)}${e.category ? " · " + esc(e.category) : ""} · pagou ${payer}</p>
+      ${e.note ? `<p class="sm" style="margin-top:-4px">“${esc(e.note)}”</p>` : ""}
+      ${items ? `<h3>Itens</h3>${items}` : ""}
+      <h3 style="margin-top:12px">Quanto é de cada um</h3>${shares}
+      <div class="between" style="margin-top:8px"><span class="mut">Total</span><span class="b">${brl(e.total)}</span></div>`;
+  }
+  const dlg = document.createElement("dialog"); document.body.appendChild(dlg);
+  dlg.innerHTML = `<div class="dlg-bd">${body}
+    <div class="sm mut" style="margin-top:10px">Efeito: ${effect}.</div>
+    <div class="row" style="margin-top:14px"><button class="btn sec grow" id="cdClose">Fechar</button>${e.type === "expense" ? `<button class="btn grow" id="cdEdit">Editar</button>` : ""}<button class="btn" id="cdDel" style="background:var(--danger)">Excluir</button></div>
+  </div>`;
+  dlg.showModal();
+  const close = () => { dlg.close(); dlg.remove(); };
+  dlg.querySelector("#cdClose").onclick = close;
+  if(dlg.querySelector("#cdEdit")) dlg.querySelector("#cdEdit").onclick = () => { close(); go(`casal/e/${e.id}`); };
+  dlg.querySelector("#cdDel").onclick = () => { if(!confirm("Excluir este lançamento?")) return; STORE.save(removeEntry(c, e.id)); close(); toast("Excluído"); renderCasal(); };
+}
+function coupleSettleDialog(){
+  const c = getCouple(), me = meOf(c), other = otherOf(c), you = firstName(other.name);
+  const t = coupleSummary(c); if(!t){ toast("Vocês estão quites ✓"); return; }
+  const iPay = t.from === me.id, receiver = iPay ? other : me;
+  let payload = "";
+  if(receiver.pix?.key){ try{ payload = buildPixPayload({ key: receiver.pix.key, name: receiver.pix.name || receiver.name, city: "BRASIL", amount: t.amount, description: "Racha" }); }catch(_){ payload = ""; } }
+  const pixBlock = payload
+    ? `<p class="sm mut" style="margin-bottom:6px">Pix de <b>${esc(receiver.name)}</b> — ${brl(t.amount)}</p><div class="qr" id="stQr"></div><div class="pix-box">${esc(payload)}</div><button class="btn sm block" id="stCopy" style="margin-top:8px">Copiar código Pix</button>`
+    : `<div class="banner warn">${iPay ? esc(you) + " não tem" : "Você não tem"} chave Pix cadastrada — cadastre em <b>editar</b> (na tela do casal). Ou acertem por fora e marque como pago.</div>`;
+  const nudge = `Oi! Nosso racha fechou em *${brl(t.amount)}* pra você me acertar 🙂` + (me.pix?.key ? `\nMeu Pix: ${me.pix.key}` : "");
+  const dlg = document.createElement("dialog"); document.body.appendChild(dlg);
+  dlg.innerHTML = `<div class="dlg-bd">
+    <h2>${iPay ? "Você" : esc(you)} → ${iPay ? esc(you) : "você"}</h2><h3 style="margin-top:0">${brl(t.amount)}</h3>
+    ${pixBlock}
+    ${!iPay ? `<a class="btn sec block" style="text-align:center;text-decoration:none;margin-top:10px" target="_blank" href="https://wa.me/?text=${encodeURIComponent(nudge)}">Cobrar no WhatsApp</a>` : ""}
+    <div class="row" style="margin-top:16px"><button class="btn grow" id="stDone">Marcar como pago</button><button class="btn sec" id="stClose">Fechar</button></div>
+  </div>`;
+  dlg.showModal();
+  if(payload){
+    try{ const qr = qrcode(0, "M"); qr.addData(payload); qr.make(); dlg.querySelector("#stQr").innerHTML = qr.createSvgTag({ cellSize: 4, margin: 1 }); }catch(_){ dlg.querySelector("#stQr")?.remove(); }
+    dlg.querySelector("#stCopy").onclick = () => copy(payload);
+  }
+  const close = () => { dlg.close(); dlg.remove(); };
+  dlg.querySelector("#stClose").onclick = close;
+  dlg.querySelector("#stDone").onclick = () => { STORE.addSettlement(c.id, t.from, t.to, t.amount); close(); toast("Acerto registrado ✓"); renderCasal(); };
+}
+
+/* ---------- ponte: guardar a parte do casal de uma conta rachada na mesa ---------- */
+function saveCalcToCouple(){
+  const r = calcSplit();
+  if(r.total <= 0){ toast("Adicione itens com valor primeiro"); return; }
+  if(CALC.people.length < 1){ toast("Adicione as pessoas primeiro"); return; }
+  const c = getCouple();
+  if(!c){ toast("Configure o casal primeiro"); return go("casal"); }
+  const me = meOf(c), other = otherOf(c), you = firstName(other.name);
+  const guess = name => (CALC.people.find(p => norm(p.name) === norm(name)) || CALC.people.find(p => norm(p.name) === norm(firstName(name))))?.id || "";
+  const opts = sel => `<option value="">— não está na mesa —</option>` + CALC.people.map(p => `<option value="${p.id}" ${p.id === sel ? "selected" : ""}>${esc(p.name)}</option>`).join("");
+  const dlg = document.createElement("dialog"); document.body.appendChild(dlg);
+  dlg.innerHTML = `<div class="dlg-bd">
+    <h2>Guardar no casal</h2>
+    <p class="sm mut" style="margin-top:0">Só a parte de vocês dois entra no saldo do casal. O resto da mesa acerta por fora (Compartilhar).</p>
+    <label class="fld"><span>Na mesa, você é</span><select id="scMe">${opts(guess(me.name))}</select></label>
+    <label class="fld"><span>Na mesa, ${esc(you)} é</span><select id="scOther">${opts(guess(other.name))}</select></label>
+    <label class="fld"><span>Quem pagou a conta</span><select id="scPayer"><option value="${me.id}">Eu</option><option value="${other.id}">${esc(you)}</option></select></label>
+    <label class="fld"><span>Descrição</span><input id="scDesc" value="Conta na mesa"></label>
+    <div class="row" style="margin-top:6px"><button class="btn grow" id="scOk">Guardar</button><button class="btn sec" id="scCancel">Cancelar</button></div>
+  </div>`;
+  dlg.showModal();
+  const close = () => { dlg.close(); dlg.remove(); };
+  dlg.querySelector("#scCancel").onclick = close;
+  dlg.querySelector("#scOk").onclick = () => {
+    const meCalc = dlg.querySelector("#scMe").value, otherCalc = dlg.querySelector("#scOther").value;
+    if(meCalc && otherCalc && meCalc === otherCalc){ toast("Escolha pessoas diferentes"); return; }
+    const myShare = meCalc ? round2(r.shares[meCalc] || 0) : 0, herShare = otherCalc ? round2(r.shares[otherCalc] || 0) : 0;
+    if(myShare + herShare <= 0){ toast("Vocês dois não têm consumo nessa conta"); return; }
+    const atom = buildExpense({
+      description: dlg.querySelector("#scDesc").value.trim() || "Conta na mesa", category: "🍽️ Comida", spentAt: todayISO(),
+      method: "exact", participants: [me.id, other.id], exact: { [me.id]: myShare, [other.id]: herShare },
+      payers: dlg.querySelector("#scPayer").value,
+      note: `Mesa com ${CALC.people.length} ${CALC.people.length === 1 ? "pessoa" : "pessoas"} · conta ${brl(r.total)}`,
+    });
+    STORE.save(addEntry(c, atom));
+    close(); toast("Guardado no casal ✓"); go("casal");
+  };
 }
 
 /* ====================================================================== */

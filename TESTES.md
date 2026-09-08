@@ -73,4 +73,38 @@
 - [ ] Depois de um deploy, o app pega a versão nova **sozinho** (sem precisar limpar cache).
 
 ---
+
+# Aba Casal (local, sem conta) — v25
+
+## 15. Configurar o casal
+- [ ] Aba **Casal** abre direto em "Vocês dois" (sem login, sem "Ative os Grupos").
+- [ ] Preencher seu nome + Pix (opcional) e o nome do(a) parceiro(a) + Pix (opcional) → **Começar** → "Vocês estão quites ✓".
+- [ ] **editar** muda nomes/Pix sem perder o histórico. "Apagar o casal" pede confirmação e zera.
+
+## 16. Lançar despesa (os 5 jeitos)
+- [ ] **Meio a meio**: eu paguei 100 → prévia "Ana passa a te dever R$ 50,00" → salva → home "Ana te deve R$ 50,00".
+- [ ] **Só eu** com Ana pagando: 30 → "você passa a dever R$ 30,00" → home cai pra R$ 20,00.
+- [ ] **Só Ana**, **Valores** (quanto é de cada um).
+- [ ] **Por item**: 📷 foto (precisa da chave em ⚙) / 📝 texto / ＋ manual → marcar quem consumiu cada item → serviço/couvert/desconto → banner "✓ Bate com o total da conta".
+- [ ] A **prévia** sempre diz o efeito no saldo ("passa a te dever" / "você passa a dever" / "não muda").
+- [ ] Trocar **Quem pagou** (Eu / Ana) inverte o efeito.
+
+## 17. Histórico, detalhe, editar, excluir
+- [ ] Histórico do mais recente pro mais antigo; cada linha mostra `+R$` (me devem) ou `-R$` (eu devo).
+- [ ] Tocar na linha abre o detalhe (itens, quanto é de cada um, efeito). **Editar** abre o form preenchido; salvar não duplica (mesma contagem, saldo certo). **Excluir** some e o saldo volta.
+
+## 18. Acertar + cobrar
+- [ ] **Acertar** mostra quem paga quem e o valor. Se quem recebe tem Pix: **QR + copia-e-cola + Copiar**. Se não: aviso.
+- [ ] Quando ela me deve: **Cobrar** (home) e **Cobrar no WhatsApp** (dialog) abrem o WhatsApp com valor + meu Pix.
+- [ ] **Marcar como pago** registra o acerto (💸 no histórico) e volta pra "quites".
+
+## 19. Ponte: mesa → casal
+- [ ] Na aba **Racha**, rachar uma conta com 3+ pessoas (incluindo vocês dois) → **💑 Guardar no casal**.
+- [ ] O dialog já adivinha quem é você e quem é ela pelo nome; escolher quem pagou → **Guardar** → cai no Casal com a despesa "Conta na mesa" e **só a parte de vocês dois** (nota diz "Mesa com N pessoas · conta R$X").
+- [ ] Sem casal configurado, o botão manda pra aba Casal.
+
+## 20. Persistência
+- [ ] Fechar e reabrir o app (ou recarregar): casal e histórico continuam (localStorage — só neste aparelho).
+
+---
 **Anotar bugs:** o que fez, o que esperava, o que aconteceu, e (se der) o print + a mensagem embaixo do botão / no console.
