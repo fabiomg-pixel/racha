@@ -24,6 +24,52 @@ function initials(name){ const p = String(name||"?").trim().split(/\s+/); return
 function colorFor(seed){ let h = 0; for(const c of String(seed||"")) h = (h*31 + c.charCodeAt(0)) % 360; return `hsl(${h} 52% 42%)`; }
 const avatar = name => `<span class="av" style="background:${colorFor(name)}">${esc(initials(name))}</span>`;
 
+/* ---------- visual (direção C): ícones de traço, categorias, datas e valores ---------- */
+// Nada de emoji como ícone: SVG de traço numa grade de 24, herdando a cor do texto.
+const ICON_PATHS = {
+  cart:   '<circle cx="9.5" cy="20" r="1.3"/><circle cx="17.5" cy="20" r="1.3"/><path d="M2.8 3.5h2.4l2.4 11.8h11"/><path d="M6.6 7.4h14l-1.4 5.9H7.8"/>',
+  food:   '<path d="M6.5 2.8v7a2.3 2.3 0 0 0 2.3 2.3v9.1"/><path d="M4.6 2.8v4.3M8.4 2.8v4.3"/><path d="M17.6 2.8c-1.5.9-2.4 2.8-2.4 5.2s.9 4.3 2.4 5.2v8"/>',
+  beer:   '<path d="M6 7h10v12.5a1.7 1.7 0 0 1-1.7 1.7H7.7A1.7 1.7 0 0 1 6 19.5z"/><path d="M16 10h1.6a2.4 2.4 0 0 1 0 4.8H16"/><path d="M6.2 7a2.6 2.6 0 0 1 4.6-2.1 2.6 2.6 0 0 1 4.9 1.4"/>',
+  home:   '<path d="M3.5 10.6L12 3.5l8.5 7.1"/><path d="M5.8 9v11.2h12.4V9"/><path d="M10 20.2v-5.6h4v5.6"/>',
+  car:    '<path d="M3.6 16.4h16.8"/><path d="M3.6 16.4v-3.8l2-5.2h12.8l2 5.2v3.8z"/><path d="M6.2 16.4v2.2M17.8 16.4v2.2"/><circle cx="7.6" cy="13.4" r=".9"/><circle cx="16.4" cy="13.4" r=".9"/>',
+  plane:  '<path d="M21 15.6L13.4 11V5.2a1.6 1.6 0 0 0-3.2 0V11L2.6 15.6v2l7.6-2.4v4.2l-2.2 1.6v1.4l3.6-1 3.6 1v-1.4l-2.2-1.6v-4.2l7.6 2.4z"/>',
+  fun:    '<path d="M12 3.2l1.9 4.9 4.9 1.9-4.9 1.9L12 16.8l-1.9-4.9-4.9-1.9 4.9-1.9z"/><path d="M18.6 15.4l.8 2 2 .8-2 .8-.8 2-.8-2-2-.8 2-.8z"/>',
+  pill:   '<rect x="2.8" y="8.6" width="18.4" height="6.8" rx="3.4"/><path d="M12 8.6v6.8"/>',
+  bill:   '<path d="M6.2 2.6h11.6v18.8l-1.9-1.4-1.9 1.4-1.9-1.4-1.9 1.4-1.9-1.4-1.9 1.4z"/><path d="M9.2 8.2h5.6M9.2 12.4h5.6"/>',
+  gift:   '<rect x="3.4" y="8" width="17.2" height="4.4" rx="1"/><path d="M5 12.4v8.4h14v-8.4M12 8v12.8"/><path d="M12 8C10.5 4.6 7 4.4 7 6.4S10.6 8 12 8zm0 0c1.5-3.4 5-3.6 5-1.6S13.4 8 12 8z"/>',
+  tag:    '<path d="M3.2 12.3V4.4a1.2 1.2 0 0 1 1.2-1.2h7.9l9.2 9.2a1.2 1.2 0 0 1 0 1.7l-7.4 7.4a1.2 1.2 0 0 1-1.7 0z"/><circle cx="8" cy="8" r="1.3"/>',
+  swap:   '<path d="M4 8h14.5l-3.5-3.5M20 16H5.5l3.5 3.5"/>',
+  camera: '<path d="M3.2 8.4a1.6 1.6 0 0 1 1.6-1.6h2.4L8.8 4.6h6.4l1.6 2.2h2.4a1.6 1.6 0 0 1 1.6 1.6v9.8a1.6 1.6 0 0 1-1.6 1.6H4.8a1.6 1.6 0 0 1-1.6-1.6z"/><circle cx="12" cy="13" r="3.6"/>',
+  image:  '<rect x="3.2" y="4.4" width="17.6" height="15.2" rx="2"/><circle cx="8.6" cy="9.4" r="1.6"/><path d="M20.8 15.6l-4.8-4.8-9.4 8.8"/>',
+  text:   '<path d="M6 2.8h8.4L19 7.4v13.8H6z"/><path d="M14.2 2.8v4.8H19M9 12h7M9 15.6h7"/>',
+  plus:   '<path d="M12 5.5v13M5.5 12h13"/>',
+  close:  '<path d="M6.5 6.5l11 11M17.5 6.5l-11 11"/>',
+  back:   '<path d="M14.5 5.5L8 12l6.5 6.5"/>',
+  heart:  '<path d="M12 20.4s-7.4-4.6-7.4-9.6A4.3 4.3 0 0 1 12 8.2a4.3 4.3 0 0 1 7.4 2.6c0 5-7.4 9.6-7.4 9.6z"/>',
+  gear:   '<circle cx="12" cy="12" r="3"/><path d="M19.9 14.6a1.7 1.7 0 0 0 .3 1.9l.1.1a2 2 0 1 1-2.8 2.8l-.1-.1a1.7 1.7 0 0 0-1.9-.3 1.7 1.7 0 0 0-1 1.5v.2a2 2 0 1 1-4 0v-.1a1.7 1.7 0 0 0-1.1-1.5 1.7 1.7 0 0 0-1.9.3l-.1.1a2 2 0 1 1-2.8-2.8l.1-.1a1.7 1.7 0 0 0 .3-1.9 1.7 1.7 0 0 0-1.5-1H3.4a2 2 0 1 1 0-4h.1a1.7 1.7 0 0 0 1.5-1.1 1.7 1.7 0 0 0-.3-1.9l-.1-.1a2 2 0 1 1 2.8-2.8l.1.1a1.7 1.7 0 0 0 1.9.3h.1a1.7 1.7 0 0 0 1-1.5V3.4a2 2 0 1 1 4 0v.1a1.7 1.7 0 0 0 1 1.5 1.7 1.7 0 0 0 1.9-.3l.1-.1a2 2 0 1 1 2.8 2.8l-.1.1a1.7 1.7 0 0 0-.3 1.9v.1a1.7 1.7 0 0 0 1.5 1h.2a2 2 0 1 1 0 4h-.1a1.7 1.7 0 0 0-1.5 1z"/>',
+};
+function icon(name, size = 20, sw = 1.7){
+  return `<svg width="${size}" height="${size}" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="${sw}" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">${ICON_PATHS[name] || ICON_PATHS.tag}</svg>`;
+}
+// categoria continua guardada como "🛒 Mercado" (compatível com o que já foi salvo e com os Grupos); a tela mostra ícone + nome
+const catLabel = cat => String(cat || "").replace(/^[^\p{L}\p{N}]+/u, "").trim();
+function catIcon(cat){
+  const k = catLabel(cat).toLowerCase();
+  const map = [["comida","food"],["bar","beer"],["mercado","cart"],["casa","home"],["transporte","car"],["viagem","plane"],["lazer","fun"],["saúde","pill"],["saude","pill"],["contas","bill"],["outros","gift"]];
+  return (map.find(([p]) => k.startsWith(p)) || [, "tag"])[1];
+}
+const MONTHS = ["jan","fev","mar","abr","mai","jun","jul","ago","set","out","nov","dez"];
+const fmtShort = iso => { const m = /^(\d{4})-(\d{2})-(\d{2})/.exec(String(iso || "")); return m ? `${+m[3]} ${MONTHS[+m[2] - 1]}` : ""; };
+const money2 = n => (Number(n) || 0).toLocaleString("pt-BR", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+const signed = n => (n > 0.004 ? "+" : n < -0.004 ? "−" : "") + money2(Math.abs(n));   // +123,90 · −34,20 (menos de verdade)
+const tone = n => Math.abs(n) < 0.005 ? "zero" : n > 0 ? "pos" : "neg";
+const brlNB = n => brl(n).replace(/\s/g, "\u00a0");   // "R$ 110,60" nunca parte no meio da linha
+// os quatro jeitos de trazer itens (foto/galeria/texto/manual) — mesmos ids de antes, só o visual muda
+function srcTiles(prefix){
+  return [["Cam", "camera", "Foto"], ["Gal", "image", "Galeria"], ["Text", "text", "Texto"], ["Manual", "plus", "Manual"]]
+    .map(([id, ic, label]) => `<button class="opt src" id="${prefix}${id}">${icon(ic, 21)}<span>${label}</span></button>`).join("");
+}
+
 let toastT;
 function toast(msg, ms = 2600){
   document.querySelector(".toast")?.remove();
@@ -107,11 +153,25 @@ function activeTab(){
 }
 const go = hash => { location.hash = hash; };
 
+// Casca da direção C: abas no rodapé. O cabeçalho verde some nas telas do Casal (lá o saldo É o cabeçalho);
+// formulários escondem as abas e ganham a barra de salvar no rodapé.
+function paintShell(tab){
+  const { parts } = parseHash();
+  const form = (tab === "casal" && (parts[1] === "new" || parts[1] === "e"))
+            || (tab === "grupos" && parts[0] === "g" && ["new", "e", "settle"].includes(parts[2]));
+  document.body.dataset.tab = tab;
+  document.body.dataset.screen = tab === "casal" ? (form ? "casal-form" : "casal-home") : tab;
+  document.body.classList.toggle("form", form);
+  $("#topTitle").textContent = tab === "grupos" ? "Grupos" : "Racha";
+  window.scrollTo(0, 0);
+}
+
 function route(){
   const tab = activeTab();
   $("#tabRacha").classList.toggle("on", tab === "racha");
   $("#tabCasal").classList.toggle("on", tab === "casal");
   $("#tabGrupos").classList.toggle("on", tab === "grupos");
+  paintShell(tab);
   ITEM_SINK = null;
   if(LIVE){ db.unsubscribe(LIVE); LIVE = null; }   // encerra o realtime da tela anterior
   if(tab === "racha") return renderRacha();
@@ -160,7 +220,7 @@ function renderRacha(){
         <input data-f="name" value="${esc(it.name)}" placeholder="item" class="grow">
         <input data-f="qty" type="number" inputmode="decimal" value="${it.qty}" min="0" step="1" style="width:58px">
         <input data-f="price" type="number" inputmode="decimal" value="${it.price}" min="0" step="0.01" style="width:82px">
-        <button class="btn ghost" data-rm="${i}" aria-label="remover">✕</button>
+        <button class="btn ghost" data-rm="${i}" aria-label="remover">${icon("close", 18, 2)}</button>
       </div>
       ${CALC.people.length ? `<div class="row wrap" style="margin-top:8px;gap:6px">${memChips(it)}</div>` : `<div class="sm mut" style="margin-top:6px">adicione pessoas pra marcar quem dividiu</div>`}
     </div>`).join("");
@@ -174,12 +234,7 @@ function renderRacha(){
 
     <div class="card">
       <div class="between"><h2 style="margin:0">Itens</h2></div>
-      <div class="grid4" style="margin:10px 0">
-        <button class="btn sec sm" id="rcCam">📷 Foto</button>
-        <button class="btn sec sm" id="rcGal">🖼️ Galeria</button>
-        <button class="btn sec sm" id="rcText">📝 Texto</button>
-        <button class="btn sec sm" id="rcManual">＋ Manual</button>
-      </div>
+      <div class="seg c4" style="margin:10px 0">${srcTiles("rc")}</div>
       <div id="rcItems">${itemsHtml || '<p class="sm mut">Adicione itens por foto, texto ou manual.</p>'}</div>
     </div>
 
@@ -198,7 +253,7 @@ function renderRacha(){
 
     <div class="row" style="margin-top:4px">
       <button class="btn sec grow" id="rcShare">Compartilhar</button>
-      <button class="btn grow" id="rcCouple">💑 Guardar no casal</button>
+      <button class="btn grow" id="rcCouple">${icon("heart", 18, 2)}Guardar no casal</button>
     </div>
     <div class="row" style="margin-top:8px">
       <button class="btn ghost grow" id="rcPush">Lançar num grupo →</button>
@@ -343,6 +398,7 @@ async function pushCalcToGroup(groupId, payerPersonId, description, r){
 /* ====================================================================== */
 // Livro-razão LOCAL do casal: js/model.js + localStorage. Sem conta, sem Supabase.
 // Um casal só, neste aparelho; o(a) parceiro(a) é só um nome (+ Pix opcional).
+// Visual (direção C, "campo de cor"): o saldo num bloco verde; o conteúdo sobe numa folha branca.
 const STORE = createStore();
 function getCouple(){ return STORE.list().find(l => l.kind === "couple") || null; }
 const meOf = c => c.people.find(p => p.isMe) || c.people[0];
@@ -359,32 +415,47 @@ function routeCasal(){
 function renderCasal(){
   const c = getCouple();
   if(!c) return renderCoupleSetup(null);
-  const me = meOf(c), other = otherOf(c), you = firstName(other.name);
+  const me = meOf(c), other = otherOf(c), you = esc(firstName(other.name));
   const mine = round2(ledgerBalances(c)[me.id] || 0);          // >0: me devem · <0: eu devo
-  const head = Math.abs(mine) < 0.005 ? `Vocês estão quites ✓`
-    : mine > 0 ? `<b>${esc(you)}</b> te deve <b style="color:var(--okink)">${brl(mine)}</b>`
-    : `Você deve <b style="color:var(--warn)">${brl(-mine)}</b> a <b>${esc(you)}</b>`;
+  const quite = Math.abs(mine) < 0.005;
+  const label = quite ? "Tudo certo entre vocês" : mine > 0 ? `${you} te deve` : `Você deve a ${you}`;
+  const actions = quite ? "" : mine > 0
+    ? `<div class="hero-actions"><button class="hb solid" id="cpSettle">Acertar</button><button class="hb line" id="cpNudge">Cobrar</button></div>`
+    : `<div class="hero-actions"><button class="hb solid" id="cpSettle">Pagar ${you}</button></div>`;
   const entries = c.entries.slice().reverse().sort((a, b) => String(b.spentAt || "").localeCompare(String(a.spentAt || "")));   // mais recente primeiro
-  const eff = n => Math.abs(n) < 0.005 ? `<span class="pill zero">0</span>` : n > 0 ? `<span class="pill pos">+${brl(n)}</span>` : `<span class="pill neg">${brl(n)}</span>`;
   const rows = entries.map(e => {
     const n = entryNet(e)[me.id] || 0;                          // efeito no MEU saldo
     if(e.type === "settlement"){
-      const who = e.from === me.id ? `Você pagou ${brl(e.amount)} a ${esc(you)}` : `${esc(you)} te pagou ${brl(e.amount)}`;
-      return `<div class="listrow" data-entry="${e.id}" style="cursor:pointer"><div class="row"><span style="font-size:17px">💸</span><div><div class="b">${who}</div><div class="sm mut">${fmtDate(e.spentAt)} · acerto</div></div></div>${eff(n)}</div>`;
+      const title = e.from === me.id ? `Você pagou ${you}` : `${you} te pagou`;
+      return `<div class="erow" data-entry="${e.id}" role="button" tabindex="0">
+        <div class="ico">${icon("swap")}</div>
+        <div class="grow" style="min-width:0"><div class="t">${title}</div><div class="s num">${fmtShort(e.spentAt)} · acerto</div></div>
+        <div class="v num zero">${signed(n)}</div></div>`;
     }
-    const payer = (e.payers || []).map(p => p.id === me.id ? "você" : you).join(" e ");
-    return `<div class="listrow" data-entry="${e.id}" style="cursor:pointer"><div><div class="b">${esc(e.description || "Despesa")}</div><div class="sm mut">${fmtDate(e.spentAt)}${e.category ? " · " + esc(e.category) : ""} · ${brl(e.total)} · pagou ${esc(payer)}</div></div>${eff(n)}</div>`;
+    const payer = (e.payers || []).length > 1 ? "vocês dois pagaram" : (e.payers?.[0]?.id === me.id ? "você pagou" : `${you} pagou`);
+    return `<div class="erow" data-entry="${e.id}" role="button" tabindex="0">
+      <div class="ico ${tone(n)}">${icon(catIcon(e.category))}</div>
+      <div class="grow" style="min-width:0"><div class="t">${esc(e.description || "Despesa")}</div><div class="s num">${fmtShort(e.spentAt)} · ${payer} ${brlNB(e.total)}</div></div>
+      <div class="v num ${tone(n)}">${signed(n)}</div></div>`;
   }).join("");
+  const count = c.entries.length;
   app.innerHTML = `
-    <div class="card">
-      <div class="between"><h2 style="margin:0">${esc(c.name)}</h2><a class="link sm" id="cpEdit">editar</a></div>
-      <div style="font-size:19px;margin:10px 0 2px">${head}</div>
-      <div class="sm mut">Só neste aparelho · ${c.entries.length} ${c.entries.length === 1 ? "lançamento" : "lançamentos"}</div>
-      ${Math.abs(mine) >= 0.005 ? `<div class="row" style="margin-top:12px"><button class="btn grow" id="cpSettle">${mine > 0 ? "Acertar" : "Acertar (pagar)"}</button>${mine > 0 ? `<button class="btn sec" id="cpNudge">Cobrar</button>` : ""}</div>` : ""}
-    </div>
-    <div class="card"><h3 style="margin:0 0 .4em">Histórico</h3>${rows || `<div class="empty">Nenhum lançamento ainda. Toque em <b>+ Nova despesa</b> — ou racha uma conta na aba <b>Racha</b> e use “Guardar no casal”.</div>`}</div>
-    <button class="btn block fab" id="cpNew">+ Nova despesa</button>`;
+    <section class="hero"><div class="wrapc">
+      <div class="hero-top">
+        <button class="hero-id" id="cpEdit" aria-label="editar o casal"><span class="mono">${esc(initials(me.name + " " + other.name))}</span><span>${esc(c.name)}</span></button>
+        <button class="iconbtn" id="cpCfg" aria-label="configurações">${icon("gear", 19)}</button>
+      </div>
+      <div class="hero-label">${label}</div>
+      <div class="hero-amount num">${quite ? "Quites" : brlNB(Math.abs(mine))}</div>
+      ${actions}
+    </div></section>
+    <section class="sheet"><div class="wrapc">
+      <div class="sheet-head"><h2 style="margin:0">Histórico</h2><span class="sm mut">${count ? `${count} ${count === 1 ? "lançamento" : "lançamentos"} · ` : ""}só neste aparelho</span></div>
+      ${rows || `<div class="empty">Nenhum lançamento ainda.<br>Toque no <b>+</b> pra lançar a primeira despesa — ou rache uma conta na aba <b>Racha</b> e guarde a parte de vocês.</div>`}
+    </div></section>
+    <button class="fab-plus" id="cpNew" aria-label="nova despesa">${icon("plus", 26, 2.2)}</button>`;
   $("#cpEdit").onclick = () => renderCoupleSetup(c);
+  $("#cpCfg").onclick = openCfg;
   $("#cpNew").onclick = () => go("casal/new");
   if($("#cpSettle")) $("#cpSettle").onclick = coupleSettleDialog;
   if($("#cpNudge")) $("#cpNudge").onclick = () => {
@@ -392,23 +463,41 @@ function renderCasal(){
     if(me.pix?.key) msg += `\nMeu Pix: ${me.pix.key}`;
     window.open(`https://wa.me/?text=${encodeURIComponent(msg)}`, "_blank");
   };
-  app.querySelectorAll("[data-entry]").forEach(r => r.onclick = () => coupleEntryDialog(r.dataset.entry));
+  app.querySelectorAll("[data-entry]").forEach(r => {
+    const open = () => coupleEntryDialog(r.dataset.entry);
+    r.onclick = open;
+    r.onkeydown = ev => { if(ev.key === "Enter" || ev.key === " "){ ev.preventDefault(); open(); } };
+  });
 }
 
 function renderCoupleSetup(c){
   const me = c ? meOf(c) : null, other = c ? otherOf(c) : null;
-  app.innerHTML = `<div class="card">
-    <h2>${c ? "Editar o casal" : "Vocês dois"}</h2>
-    <p class="mut sm" style="margin-top:0">Fica só neste aparelho, sem conta nem login. Lance as despesas e o app diz quem deve quem.</p>
-    <h3>Você</h3>
-    <label class="fld"><span>Seu nome</span><input id="csMe" value="${esc(me?.name || PROFILE?.name || "")}" placeholder="ex.: Fábio"></label>
-    <label class="fld"><span>Sua chave Pix (opcional — pra receber)</span><input id="csMePix" value="${esc(me?.pix?.key || PROFILE?.pix_key || "")}" placeholder="cpf, e-mail, telefone ou aleatória"></label>
-    <h3 style="margin-top:14px">Parceiro(a)</h3>
-    <label class="fld"><span>Nome</span><input id="csOther" value="${esc(other?.name || "")}" placeholder="ex.: Ana"></label>
-    <label class="fld"><span>Chave Pix (opcional — pra você pagar)</span><input id="csOtherPix" value="${esc(other?.pix?.key || "")}" placeholder="chave Pix de quem você paga"></label>
-    <div class="row" style="margin-top:12px"><button class="btn grow" id="csSave">${c ? "Salvar" : "Começar"}</button>${c ? `<button class="btn sec" id="csCancel">Cancelar</button>` : ""}</div>
-    ${c ? `<button class="btn ghost block" id="csWipe" style="margin-top:10px;color:var(--danger)">Apagar o casal e todo o histórico</button>` : ""}
-  </div>`;
+  app.innerHTML = `
+    <section class="hero hero-form"><div class="wrapc">
+      <div class="hero-top">
+        ${c ? `<button class="iconbtn" id="csBack" aria-label="voltar">${icon("back", 19, 2)}</button>` : ""}
+        <div class="grow hero-title">${c ? "Editar o casal" : "Vocês dois"}</div>
+        <button class="iconbtn" id="csCfg" aria-label="configurações">${icon("gear", 19)}</button>
+      </div>
+      ${c ? "" : `<div class="hero-label" style="margin-top:20px;font-size:18px;font-weight:700;opacity:1">Dividam as contas sem conta e sem login.</div>
+      <div class="sm" style="opacity:.82;margin-top:6px">Fica só neste aparelho. Vocês lançam as despesas e o app diz quem deve quanto.</div>`}
+    </div></section>
+    <section class="sheet form"><div class="wrapc stack">
+      <div><div class="flabel">Você</div>
+        <div class="stack" style="gap:9px">
+          <label class="tile"><span>Nome</span><input id="csMe" value="${esc(me?.name || PROFILE?.name || "")}" placeholder="ex.: Fábio" autocomplete="given-name"></label>
+          <label class="tile"><span>Pix</span><input id="csMePix" value="${esc(me?.pix?.key || PROFILE?.pix_key || "")}" placeholder="pra receber (opcional)"></label>
+        </div></div>
+      <div><div class="flabel">Parceiro(a)</div>
+        <div class="stack" style="gap:9px">
+          <label class="tile"><span>Nome</span><input id="csOther" value="${esc(other?.name || "")}" placeholder="ex.: Ana"></label>
+          <label class="tile"><span>Pix</span><input id="csOtherPix" value="${esc(other?.pix?.key || "")}" placeholder="pra você pagar (opcional)"></label>
+        </div></div>
+      <button class="btn block" id="csSave">${c ? "Salvar" : "Começar"}</button>
+      ${c ? `<button class="btn ghost block" id="csWipe" style="color:var(--danger)">Apagar o casal e todo o histórico</button>` : ""}
+    </div></section>`;
+  $("#csCfg").onclick = openCfg;
+  if($("#csBack")) $("#csBack").onclick = renderCasal;
   $("#csSave").onclick = () => {
     const meName = $("#csMe").value.trim(), otherName = $("#csOther").value.trim();
     const mePix = $("#csMePix").value.trim(), otherPix = $("#csOtherPix").value.trim();
@@ -422,7 +511,6 @@ function renderCoupleSetup(c){
     }
     toast(c ? "Salvo ✓" : "Casal criado ✓"); renderCasal();
   };
-  if($("#csCancel")) $("#csCancel").onclick = renderCasal;
   if($("#csWipe")) $("#csWipe").onclick = () => { if(confirm("Apagar o casal e TODO o histórico deste aparelho? Não dá pra desfazer.")){ STORE.remove(c.id); toast("Apagado"); renderCasal(); } };
 }
 
@@ -431,11 +519,11 @@ let CDRAFT = null;
 function renderCoupleExpense(editId){
   const c = getCouple(); if(!c) return renderCoupleSetup(null);
   const me = meOf(c);
-  const d = CDRAFT = { editId: null, description: "", category: "", spentAt: todayISO(), payer: me.id, mode: "equal", total: 0, exact: {}, items: [], serviceOn: false, serviceRate: 0.10, couvert: 0, discount: 0, billTotal: null };
+  const d = CDRAFT = { editId: null, description: "", category: "", spentAt: todayISO(), payer: me.id, mode: "equal", total: 0, exact: {}, items: [], serviceOn: false, serviceRate: 0.10, couvert: 0, discount: 0, billTotal: null, focusValue: true };
   if(editId){
     const e = c.entries.find(x => x.id === editId && x.type === "expense");
     if(!e){ toast("Despesa não encontrada"); return go("casal"); }
-    d.editId = e.id; d.description = e.description || ""; d.category = e.category || ""; d.spentAt = e.spentAt || todayISO();
+    d.editId = e.id; d.focusValue = false; d.description = e.description || ""; d.category = e.category || ""; d.spentAt = e.spentAt || todayISO();
     d.payer = e.payers?.[0]?.id || me.id; d.total = Number(e.total) || 0;
     if(e.method === "item"){
       d.mode = "item"; d.items = (e.items || []).map(it => ({ name: it.name || "", qty: it.qty, unitPrice: it.unitPrice, consumers: [...(it.consumers || [])] }));
@@ -458,83 +546,105 @@ function coupleAtom(d, c){
   const items = d.items.filter(it => (Number(it.qty) || 0) > 0 && (Number(it.unitPrice) || 0) > 0);
   return buildExpense({ ...base, method: "item", participants: [me.id, other.id], items, opts: { serviceRate: d.serviceOn ? d.serviceRate : 0, couvert: d.couvert, discount: d.discount } });
 }
+// trocar o jeito de dividir não joga fora o que já foi digitado
+function switchCoupleMode(m){
+  const d = CDRAFT, c = getCouple(), me = meOf(c), other = otherOf(c);
+  let current = 0; try{ current = coupleAtom(d, c).total || 0; }catch(_){}
+  if(m === "exact" && !Object.values(d.exact).some(v => Number(v) > 0) && current > 0) d.exact = allocateByWeights(current, { [me.id]: 1, [other.id]: 1 });
+  if((m === "equal" || m === "mine" || m === "theirs") && !(d.total > 0) && current > 0) d.total = current;
+  d.mode = m; paintCoupleExpense();
+}
 function paintCoupleExpense(){
-  const d = CDRAFT, c = getCouple(), me = meOf(c), other = otherOf(c), you = firstName(other.name);
+  const d = CDRAFT, c = getCouple(), me = meOf(c), other = otherOf(c), you = esc(firstName(other.name));
   ITEM_SINK = applyToCouple;
-  const chip = (attr, val, cur, label) => `<span class="chip ${val === cur ? "on" : ""}" data-${attr}="${val}">${label}</span>`;
-  const totalField = `<label class="fld"><span>Valor (R$)</span><input id="ceTotal" type="number" inputmode="decimal" value="${d.total || ""}" step="0.01" placeholder="0,00"></label>`;
+  const typed = d.mode === "equal" || d.mode === "mine" || d.mode === "theirs";
+  const fmtIn = v => (Number(v) > 0 ? money2(v) : "");
+  const heroValue = typed
+    ? `<div class="amount num"><span class="cur">R$</span><input id="ceTotal" type="text" inputmode="decimal" autocomplete="off" value="${fmtIn(d.total)}" placeholder="0,00" aria-label="valor da despesa"></div>`
+    : `<div class="amount num"><span class="cur">R$</span><span class="val" id="ceTotalView">0,00</span></div><div class="sm" style="opacity:.8;margin-top:2px">${d.mode === "item" ? "soma dos itens" : "soma dos valores"}</div>`;
+  const payerBtn = (p, label) => `<button class="opt pick ${d.payer === p.id ? "on" : ""}" data-payer="${p.id}"><span class="mono">${esc(initials(p.name))}</span>${label}</button>`;
+  const modeBtn = (val, label) => `<button class="opt ${d.mode === val ? "on" : ""}" data-mode="${val}">${label}</button>`;
   let panel = "";
-  if(d.mode === "equal" || d.mode === "mine" || d.mode === "theirs"){
-    const hint = d.mode === "equal" ? "Metade pra cada um." : d.mode === "mine" ? "A despesa é toda sua (útil quando o outro pagou por você)." : `A despesa é toda de ${esc(you)}.`;
-    panel = `${totalField}<div class="sm mut">${hint}</div>`;
-  } else if(d.mode === "exact"){
-    panel = `<div class="sm mut" style="margin-bottom:8px">Quanto é de cada um:</div>
-      <div class="grid2">
-        <label class="fld"><span>Eu</span><input data-exact="${me.id}" type="number" inputmode="decimal" value="${d.exact[me.id] ?? ""}" step="0.01" placeholder="0,00"></label>
-        <label class="fld"><span>${esc(you)}</span><input data-exact="${other.id}" type="number" inputmode="decimal" value="${d.exact[other.id] ?? ""}" step="0.01" placeholder="0,00"></label>
-      </div>`;
-  } else {
+  if(d.mode === "exact"){
+    panel = `<div class="seg c2">
+      <label class="tile tight"><span>Eu</span><input data-exact="${me.id}" type="text" inputmode="decimal" value="${fmtIn(d.exact[me.id])}" placeholder="0,00" style="text-align:right"></label>
+      <label class="tile tight"><span>${you}</span><input data-exact="${other.id}" type="text" inputmode="decimal" value="${fmtIn(d.exact[other.id])}" placeholder="0,00" style="text-align:right"></label>
+    </div>`;
+  } else if(d.mode === "item"){
     const itemsHtml = d.items.map((it, i) => `
-      <div class="item" data-i="${i}">
-        <div class="row" style="gap:8px">
-          <input data-f="name" value="${esc(it.name)}" placeholder="item" class="grow">
-          <input data-f="qty" type="number" inputmode="decimal" value="${it.qty}" min="0" step="1" style="width:58px">
-          <input data-f="unitPrice" type="number" inputmode="decimal" value="${it.unitPrice}" min="0" step="0.01" style="width:82px">
-          <button class="btn ghost" data-rm="${i}" aria-label="remover">✕</button>
+      <div class="item" data-i="${i}" style="margin:0">
+        <div class="row" style="gap:6px">
+          <input data-f="name" value="${esc(it.name)}" placeholder="item" class="grow" style="min-width:0" aria-label="item">
+          <button class="iconbtn plain" data-rm="${i}" aria-label="remover item">${icon("close", 18, 2)}</button>
         </div>
-        <div class="row wrap" style="margin-top:8px;gap:6px">${[me, other].map(p => `<span class="chip ${it.consumers.includes(p.id) ? "on" : ""}" data-mid="${p.id}">${p.id === me.id ? "Eu" : esc(you)}</span>`).join("")}</div>
+        <div class="row wrap" style="margin-top:8px;gap:8px">
+          <input data-f="qty" type="text" inputmode="numeric" value="${it.qty}" style="width:52px;text-align:center" aria-label="quantidade">
+          <span class="mut" aria-hidden="true">×</span>
+          <input data-f="unitPrice" type="text" inputmode="decimal" value="${fmtIn(it.unitPrice)}" placeholder="0,00" style="width:96px;text-align:right" aria-label="preço unitário">
+          <span class="grow"></span>
+          <span class="row" style="gap:6px" role="group" aria-label="quem comeu">${[me, other].map(p => `<button class="chip ${it.consumers.includes(p.id) ? "on" : ""}" data-mid="${p.id}">${p.id === me.id ? "Eu" : you}</button>`).join("")}</span>
+        </div>
       </div>`).join("");
     panel = `
-      <div class="grid4" style="margin-bottom:10px">
-        <button class="btn sec sm" id="ceCam">📷 Foto</button><button class="btn sec sm" id="ceGal">🖼️ Galeria</button>
-        <button class="btn sec sm" id="ceText">📝 Texto</button><button class="btn sec sm" id="ceManual">＋ Manual</button>
+      <div class="seg c4">${srcTiles("ce")}</div>
+      ${itemsHtml || `<p class="sm mut" style="margin:0">Tire a foto da conta — ou cole o texto, ou adicione à mão — e marque quem comeu cada item.</p>`}
+      <div class="seg c2">
+        <button class="opt ${d.serviceOn ? "on" : ""}" id="ceSvcOn">${d.serviceOn ? "Com serviço" : "Sem serviço"}</button>
+        <label class="tile tight"><span>Taxa</span><input id="ceSvc" type="text" inputmode="decimal" value="${Math.round(d.serviceRate * 100)}" style="text-align:right" ${d.serviceOn ? "" : "disabled"}><span>%</span></label>
       </div>
-      <div id="ceItems">${itemsHtml || '<p class="sm mut">Tire a foto da conta (ou cole o texto / adicione manual) e marque quem consumiu cada item.</p>'}</div>
-      <div class="grid2" style="margin-top:12px">
-        <label class="fld"><span>Serviço</span><div class="row"><input id="ceSvc" type="number" inputmode="decimal" value="${Math.round(d.serviceRate * 100)}" step="1" style="width:70px" ${d.serviceOn ? "" : "disabled"}><span class="mut">%</span><span class="chip ${d.serviceOn ? "on" : ""}" id="ceSvcOn">${d.serviceOn ? "incluso" : "sem"}</span></div></label>
-        <label class="fld"><span>Couvert (total)</span><input id="ceCouvert" type="number" inputmode="decimal" value="${d.couvert}" step="0.01"></label>
-      </div>
-      <label class="fld"><span>Desconto (total)</span><input id="ceDisc" type="number" inputmode="decimal" value="${d.discount}" step="0.01"></label>`;
+      <div class="seg c2">
+        <label class="tile tight"><span>Couvert</span><input id="ceCouvert" type="text" inputmode="decimal" value="${fmtIn(d.couvert)}" placeholder="0,00" style="text-align:right"></label>
+        <label class="tile tight"><span>Desconto</span><input id="ceDisc" type="text" inputmode="decimal" value="${fmtIn(d.discount)}" placeholder="0,00" style="text-align:right"></label>
+      </div>`;
   }
   app.innerHTML = `
-    <div class="card">
-      <div class="between"><a class="link" id="ceBack">← casal</a><span class="mut sm">${d.editId ? "editar despesa" : "nova despesa"}</span></div>
-      <label class="fld" style="margin-top:8px"><span>Descrição</span><input id="ceDesc" value="${esc(d.description)}" placeholder="ex.: Mercado, Jantar, Uber"></label>
-      <div class="grid2">
-        <label class="fld"><span>Categoria</span><select id="ceCat"><option value="">— sem categoria —</option>${CATEGORIES.map(x => `<option value="${esc(x)}" ${d.category === x ? "selected" : ""}>${esc(x)}</option>`).join("")}</select></label>
-        <label class="fld"><span>Data</span><input id="ceDate" type="date" value="${d.spentAt}"></label>
+    <section class="hero hero-form"><div class="wrapc">
+      <div class="hero-top">
+        <button class="iconbtn" id="ceBack" aria-label="voltar ao casal">${icon("back", 19, 2)}</button>
+        <div class="grow hero-title">${d.editId ? "Editar despesa" : "Nova despesa"}</div>
       </div>
-    </div>
-    <div class="card">
-      <h3>Quem pagou</h3>
-      <div class="row wrap" style="gap:6px">${chip("payer", me.id, d.payer, "Eu")}${chip("payer", other.id, d.payer, esc(you))}</div>
-    </div>
-    <div class="card">
-      <h3>Como dividir</h3>
-      <div class="row wrap" style="gap:6px;margin-bottom:12px">${chip("mode", "equal", d.mode, "Meio a meio")}${chip("mode", "mine", d.mode, "Só eu")}${chip("mode", "theirs", d.mode, "Só " + esc(you))}${chip("mode", "exact", d.mode, "Valores")}${chip("mode", "item", d.mode, "Por item")}</div>
-      ${panel}
-    </div>
-    <div class="card" id="cePreview"></div>
-    <button class="btn block fab" id="ceSave">${d.editId ? "Salvar alterações" : "Salvar despesa"}</button>`;
-  $("#ceDesc").oninput = e => d.description = e.target.value;
-  $("#ceCat").onchange = e => d.category = e.target.value;
-  $("#ceDate").oninput = e => d.spentAt = e.target.value;
+      <div class="hero-label" style="margin-top:18px;font-size:12px;font-weight:700;letter-spacing:.8px">VALOR</div>
+      ${heroValue}
+    </div></section>
+    <section class="sheet form"><div class="wrapc stack">
+      <div><div class="flabel">Quem pagou</div><div class="seg c2">${payerBtn(me, "Eu")}${payerBtn(other, you)}</div></div>
+      <div><div class="flabel">Como dividir</div>
+        <div class="seg c2">${modeBtn("equal", "Meio a meio")}${modeBtn("item", "Por item")}</div>
+        <div class="seg c3" style="margin-top:9px">${modeBtn("mine", "Só eu")}${modeBtn("theirs", "Só " + you)}${modeBtn("exact", "Valores")}</div>
+      </div>
+      ${panel ? `<div class="stack" style="gap:10px">${panel}</div>` : ""}
+      <div><div id="ceCheck"></div><div id="cePreview"></div></div>
+      <div class="stack" style="gap:9px">
+        <label class="tile"><span>Descrição</span><input id="ceDesc" value="${esc(d.description)}" placeholder="ex.: Mercado, Jantar, Uber"></label>
+        <div class="seg c2">
+          <label class="tile tight"><span id="ceCatIcon" style="color:var(--accent);display:grid">${icon(catIcon(d.category), 18)}</span><select id="ceCat" aria-label="categoria"><option value="">Categoria</option>${CATEGORIES.map(x => `<option value="${esc(x)}" ${d.category === x ? "selected" : ""}>${esc(catLabel(x))}</option>`).join("")}</select></label>
+          <label class="tile tight"><input id="ceDate" type="date" value="${d.spentAt}" aria-label="data"></label>
+        </div>
+      </div>
+    </div></section>
+    <div class="savebar"><button class="btn" id="ceSave">${d.editId ? "Salvar alterações" : "Salvar despesa"}</button></div>`;
   $("#ceBack").onclick = () => go("casal");
   $("#ceSave").onclick = saveCoupleExpense;
+  $("#ceDesc").oninput = e => d.description = e.target.value;
+  $("#ceCat").onchange = e => { d.category = e.target.value; $("#ceCatIcon").innerHTML = icon(catIcon(d.category), 18); };
+  $("#ceDate").oninput = e => d.spentAt = e.target.value;
   app.querySelectorAll("[data-payer]").forEach(el => el.onclick = () => { d.payer = el.dataset.payer; paintCoupleExpense(); });
-  app.querySelectorAll("[data-mode]").forEach(el => el.onclick = () => { d.mode = el.dataset.mode; paintCoupleExpense(); });
-  if($("#ceTotal")) $("#ceTotal").oninput = e => { d.total = parseMoney(e.target.value); refreshCouplePreview(); };
+  app.querySelectorAll("[data-mode]").forEach(el => el.onclick = () => switchCoupleMode(el.dataset.mode));
+  if($("#ceTotal")){
+    $("#ceTotal").oninput = e => { d.total = parseMoney(e.target.value); refreshCouplePreview(); };
+    if(d.focusValue){ d.focusValue = false; try{ $("#ceTotal").focus({ preventScroll: true }); }catch(_){} }
+  }
   app.querySelectorAll("[data-exact]").forEach(inp => inp.oninput = e => { d.exact[inp.dataset.exact] = parseMoney(e.target.value); refreshCouplePreview(); });
   if(d.mode === "item"){
     $("#ceCouvert").oninput = e => { d.couvert = parseMoney(e.target.value); refreshCouplePreview(); };
     $("#ceDisc").oninput = e => { d.discount = parseMoney(e.target.value); refreshCouplePreview(); };
-    $("#ceSvc").oninput = e => { d.serviceRate = (parseFloat(e.target.value) || 0) / 100; refreshCouplePreview(); };
+    $("#ceSvc").oninput = e => { d.serviceRate = (parseFloat(String(e.target.value).replace(",", ".")) || 0) / 100; refreshCouplePreview(); };
     $("#ceSvcOn").onclick = () => { d.serviceOn = !d.serviceOn; paintCoupleExpense(); };
     $("#ceManual").onclick = () => { d.items.push({ name: "", qty: 1, unitPrice: 0, consumers: [me.id, other.id] }); paintCoupleExpense(); };
     $("#ceText").onclick = textDialog;
     $("#ceGal").onclick = () => wantPhoto("gal");
     $("#ceCam").onclick = () => wantPhoto("cam");
-    $("#ceItems").querySelectorAll(".item").forEach(node => {
+    app.querySelectorAll(".item[data-i]").forEach(node => {
       const i = +node.dataset.i;
       node.querySelectorAll("[data-f]").forEach(inp => inp.oninput = e => { const f = inp.dataset.f; d.items[i][f] = f === "name" ? e.target.value : parseMoney(e.target.value); refreshCouplePreview(); });
       node.querySelector("[data-rm]").onclick = () => { d.items.splice(i, 1); paintCoupleExpense(); };
@@ -543,21 +653,35 @@ function paintCoupleExpense(){
   }
   refreshCouplePreview();
 }
+// Prévia: mostra o SALDO que fica depois desta despesa — e, entre parênteses, quanto ela mexe.
+// (Antes dizia "passa a te dever" com o delta, o que lia como saldo final e estava errado.)
 function refreshCouplePreview(){
-  const d = CDRAFT, c = getCouple(), me = meOf(c), other = otherOf(c), you = firstName(other.name);
+  const d = CDRAFT, c = getCouple(), me = meOf(c), other = otherOf(c), you = esc(firstName(other.name));
+  const box = $("#cePreview"), chk = $("#ceCheck"); if(!box) return;
   let atom; try{ atom = coupleAtom(d, c); }catch(_){ atom = null; }
-  if(!atom || !(atom.total > 0)){ $("#cePreview").innerHTML = `<h3>Prévia</h3><p class="sm mut">Informe um valor pra ver o efeito no saldo.</p>`; return; }
+  if($("#ceTotalView")) $("#ceTotalView").textContent = money2(atom?.total || 0);
+  chk.innerHTML = "";
+  if(!atom || !(atom.total > 0)){
+    box.className = "preview";
+    box.innerHTML = `<div class="sm" style="font-weight:600">${d.mode === "item" ? "Adicione itens com valor pra ver a divisão." : d.mode === "exact" ? "Preencha quanto é de cada um." : "Digite o valor pra ver como fica o saldo."}</div>`;
+    return;
+  }
   const sh = Object.fromEntries(atom.shares.map(s => [s.id, s.amount]));
-  const n = entryNet(atom)[me.id] || 0;
-  const effect = Math.abs(n) < 0.005 ? `não muda o saldo entre vocês.` : n > 0 ? `<b>${esc(you)}</b> passa a te dever <b style="color:var(--okink)">${brl(n)}</b>` : `você passa a dever <b style="color:var(--warn)">${brl(-n)}</b> a <b>${esc(you)}</b>`;
-  let check = "";
-  if(d.mode === "item" && d.billTotal != null && Math.abs(d.billTotal - atom.total) > 0.05) check = `<div class="banner warn">Os itens somam ${brl(atom.total)}, mas a conta diz ${brl(d.billTotal)} — confira se faltou ou repetiu item.</div>`;
-  else if(d.mode === "item" && d.billTotal != null) check = `<div class="banner ok">✓ Bate com o total da conta (${brl(d.billTotal)}).</div>`;
-  $("#cePreview").innerHTML = `<h3>Prévia</h3>${check}
-    <div class="listrow"><span>Eu</span><span class="b">${brl(sh[me.id] || 0)}</span></div>
-    <div class="listrow"><span>${esc(you)}</span><span class="b">${brl(sh[other.id] || 0)}</span></div>
-    <div class="between" style="margin-top:8px"><span class="b">Total</span><span class="b">${brl(atom.total)}</span></div>
-    <div class="sm" style="margin-top:8px">Pagou <b>${d.payer === me.id ? "você" : esc(you)}</b> → ${effect}</div>`;
+  const base = round2(ledgerBalances(d.editId ? removeEntry(c, d.editId) : c)[me.id] || 0);   // saldo SEM esta despesa
+  const n = round2(entryNet(atom)[me.id] || 0);                                               // quanto esta despesa mexe
+  const after = round2(base + n);
+  const delta = ` <span class="delta">(${signed(n)})</span>`;
+  const effect = Math.abs(n) < 0.005 ? "Não muda o saldo entre vocês."
+    : Math.abs(after) < 0.005 ? `Vocês ficam quites${delta}`
+    : after > 0 ? `${you} passa a te dever ${brlNB(after)}${delta}`
+    : `Você passa a dever ${brlNB(-after)} a ${you}${delta}`;
+  if(d.mode === "item" && d.billTotal != null && Math.abs(d.billTotal - atom.total) > 0.05) chk.innerHTML = `<div class="banner warn">Os itens somam ${brlNB(atom.total)}, mas a conta diz ${brlNB(d.billTotal)} — confira se faltou ou repetiu item.</div>`;
+  else if(d.mode === "item" && d.billTotal != null) chk.innerHTML = `<div class="banner ok">Bate com o total da conta (${brlNB(d.billTotal)}).</div>`;
+  box.className = "preview" + (Math.abs(n) >= 0.005 && after < -0.005 ? " neg" : "");   // tom de alerta só quando a despesa te deixa devendo
+  box.innerHTML = `
+    <div class="between num sm" style="font-weight:700"><span>Eu ${brlNB(sh[me.id] || 0)}</span><span>${you} ${brlNB(sh[other.id] || 0)}</span></div>
+    <div class="rule"></div>
+    <div class="effect num">${effect}</div>`;
 }
 function saveCoupleExpense(){
   const d = CDRAFT, c = getCouple();
@@ -579,30 +703,30 @@ function applyToCouple(parsed){
 
 /* ---------- detalhe / acerto ---------- */
 function coupleEntryDialog(entryId){
-  const c = getCouple(), me = meOf(c), other = otherOf(c), you = firstName(other.name);
+  const c = getCouple(), me = meOf(c), other = otherOf(c), you = esc(firstName(other.name));
   const e = c.entries.find(x => x.id === entryId); if(!e) return;
   const who = id => id === me.id ? "Você" : you;
   const n = entryNet(e)[me.id] || 0;
-  const effect = Math.abs(n) < 0.005 ? "não mudou o saldo" : n > 0 ? `${esc(you)} ficou devendo ${brl(n)}` : `você ficou devendo ${brl(-n)}`;
-  let body;
+  let body, effect;
   if(e.type === "settlement"){
-    body = `<h2>💸 Acerto</h2><p class="sm mut" style="margin-top:0">${fmtDate(e.spentAt)}</p>
-      <p><b>${esc(who(e.from))}</b> pagou <b>${brl(e.amount)}</b> ${e.to === me.id ? "a você" : "a " + esc(you)}.</p>`;
+    effect = `Abateu ${brlNB(e.amount)} do saldo.`;
+    body = `<div class="dlg-head"><div class="ico">${icon("swap")}</div><div style="min-width:0"><h2>Acerto</h2><div class="sm mut num">${fmtShort(e.spentAt)}</div></div></div>
+      <p style="margin:16px 0 0"><b>${who(e.from)}</b> pagou <b class="num">${brlNB(e.amount)}</b> ${e.to === me.id ? "a você" : "a " + you}.</p>`;
   } else {
-    const items = (e.items || []).map(it => `<div class="listrow"><div><div>${esc(it.name || "item")}</div><div class="sm mut">${Number(it.qty)}× ${brl(it.unitPrice)} · ${(it.consumers || []).map(id => esc(who(id))).join(", ") || "os dois"}</div></div><div>${brl(Number(it.qty) * Number(it.unitPrice))}</div></div>`).join("");
-    const shares = (e.shares || []).map(s => `<div class="listrow"><span>${esc(who(s.id))}</span><span class="b">${brl(s.amount)}</span></div>`).join("");
-    const payer = (e.payers || []).map(p => p.id === me.id ? "você" : esc(you)).join(" e ");
-    body = `<h2>${esc(e.description || "Despesa")}</h2>
-      <p class="sm mut" style="margin-top:0">${fmtDate(e.spentAt)}${e.category ? " · " + esc(e.category) : ""} · pagou ${payer}</p>
-      ${e.note ? `<p class="sm" style="margin-top:-4px">“${esc(e.note)}”</p>` : ""}
-      ${items ? `<h3>Itens</h3>${items}` : ""}
-      <h3 style="margin-top:12px">Quanto é de cada um</h3>${shares}
-      <div class="between" style="margin-top:8px"><span class="mut">Total</span><span class="b">${brl(e.total)}</span></div>`;
+    effect = Math.abs(n) < 0.005 ? "Não mudou o saldo." : n > 0 ? `${you} ficou te devendo ${brlNB(n)}.` : `Você ficou devendo ${brlNB(-n)} a ${you}.`;
+    const items = (e.items || []).map(it => `<div class="listrow"><div style="min-width:0"><div>${esc(it.name || "item")}</div><div class="sm mut num">${Number(it.qty)}× ${brlNB(it.unitPrice)} · ${(it.consumers || []).map(id => who(id)).join(", ") || "os dois"}</div></div><div class="num">${brlNB(Number(it.qty) * Number(it.unitPrice))}</div></div>`).join("");
+    const shares = (e.shares || []).map(s => `<div class="listrow"><span>${who(s.id)}</span><span class="b num">${brlNB(s.amount)}</span></div>`).join("");
+    const payer = (e.payers || []).map(p => p.id === me.id ? "você" : you).join(" e ");
+    body = `<div class="dlg-head"><div class="ico ${tone(n)}">${icon(catIcon(e.category))}</div><div style="min-width:0"><h2>${esc(e.description || "Despesa")}</h2><div class="sm mut num">${fmtShort(e.spentAt)}${e.category ? " · " + esc(catLabel(e.category)) : ""} · pagou ${payer}</div></div></div>
+      ${e.note ? `<p class="sm mut" style="margin:12px 0 0">${esc(e.note)}</p>` : ""}
+      ${items ? `<h3 style="margin-top:18px">Itens</h3>${items}` : ""}
+      <h3 style="margin-top:18px">Quanto é de cada um</h3>${shares}
+      <div class="between" style="margin-top:8px"><span class="mut">Total</span><span class="b num">${brlNB(e.total)}</span></div>`;
   }
   const dlg = document.createElement("dialog"); document.body.appendChild(dlg);
   dlg.innerHTML = `<div class="dlg-bd">${body}
-    <div class="sm mut" style="margin-top:10px">Efeito: ${effect}.</div>
-    <div class="row" style="margin-top:14px"><button class="btn sec grow" id="cdClose">Fechar</button>${e.type === "expense" ? `<button class="btn grow" id="cdEdit">Editar</button>` : ""}<button class="btn" id="cdDel" style="background:var(--danger)">Excluir</button></div>
+    <div class="preview${n < -0.004 && e.type !== "settlement" ? " neg" : ""}" style="margin-top:16px;padding:12px 14px"><div class="effect num">${effect}</div></div>
+    <div class="row" style="margin-top:16px"><button class="btn sec grow" id="cdClose">Fechar</button>${e.type === "expense" ? `<button class="btn grow" id="cdEdit">Editar</button>` : ""}<button class="btn danger" id="cdDel">Excluir</button></div>
   </div>`;
   dlg.showModal();
   const close = () => { dlg.close(); dlg.remove(); };
@@ -611,20 +735,21 @@ function coupleEntryDialog(entryId){
   dlg.querySelector("#cdDel").onclick = () => { if(!confirm("Excluir este lançamento?")) return; STORE.save(removeEntry(c, e.id)); close(); toast("Excluído"); renderCasal(); };
 }
 function coupleSettleDialog(){
-  const c = getCouple(), me = meOf(c), other = otherOf(c), you = firstName(other.name);
+  const c = getCouple(), me = meOf(c), other = otherOf(c), you = esc(firstName(other.name));
   const t = coupleSummary(c); if(!t){ toast("Vocês estão quites ✓"); return; }
   const iPay = t.from === me.id, receiver = iPay ? other : me;
   let payload = "";
   if(receiver.pix?.key){ try{ payload = buildPixPayload({ key: receiver.pix.key, name: receiver.pix.name || receiver.name, city: "BRASIL", amount: t.amount, description: "Racha" }); }catch(_){ payload = ""; } }
   const pixBlock = payload
-    ? `<p class="sm mut" style="margin-bottom:6px">Pix de <b>${esc(receiver.name)}</b> — ${brl(t.amount)}</p><div class="qr" id="stQr"></div><div class="pix-box">${esc(payload)}</div><button class="btn sm block" id="stCopy" style="margin-top:8px">Copiar código Pix</button>`
-    : `<div class="banner warn">${iPay ? esc(you) + " não tem" : "Você não tem"} chave Pix cadastrada — cadastre em <b>editar</b> (na tela do casal). Ou acertem por fora e marque como pago.</div>`;
+    ? `<p class="sm mut" style="margin:0 0 4px">Pix de <b>${esc(receiver.name)}</b></p><div class="qr" id="stQr"></div><div class="pix-box">${esc(payload)}</div><button class="btn sec block" id="stCopy" style="margin-top:10px">Copiar código Pix</button>`
+    : `<div class="banner warn" style="margin:0">${iPay ? you + " não tem" : "Você não tem"} chave Pix cadastrada — dá pra cadastrar tocando no nome do casal. Ou acertem por fora e marquem como pago.</div>`;
   const nudge = `Oi! Nosso racha fechou em *${brl(t.amount)}* pra você me acertar 🙂` + (me.pix?.key ? `\nMeu Pix: ${me.pix.key}` : "");
   const dlg = document.createElement("dialog"); document.body.appendChild(dlg);
   dlg.innerHTML = `<div class="dlg-bd">
-    <h2>${iPay ? "Você" : esc(you)} → ${iPay ? esc(you) : "você"}</h2><h3 style="margin-top:0">${brl(t.amount)}</h3>
+    <div class="sm mut" style="font-weight:600">${iPay ? `Você paga ${you}` : `${you} te paga`}</div>
+    <div class="settle-amount num">${brlNB(t.amount)}</div>
     ${pixBlock}
-    ${!iPay ? `<a class="btn sec block" style="text-align:center;text-decoration:none;margin-top:10px" target="_blank" href="https://wa.me/?text=${encodeURIComponent(nudge)}">Cobrar no WhatsApp</a>` : ""}
+    ${!iPay ? `<a class="btn sec block" style="margin-top:10px" target="_blank" href="https://wa.me/?text=${encodeURIComponent(nudge)}">Cobrar no WhatsApp</a>` : ""}
     <div class="row" style="margin-top:16px"><button class="btn grow" id="stDone">Marcar como pago</button><button class="btn sec" id="stClose">Fechar</button></div>
   </div>`;
   dlg.showModal();
@@ -644,16 +769,16 @@ function saveCalcToCouple(){
   if(CALC.people.length < 1){ toast("Adicione as pessoas primeiro"); return; }
   const c = getCouple();
   if(!c){ toast("Configure o casal primeiro"); return go("casal"); }
-  const me = meOf(c), other = otherOf(c), you = firstName(other.name);
+  const me = meOf(c), other = otherOf(c), you = esc(firstName(other.name));
   const guess = name => (CALC.people.find(p => norm(p.name) === norm(name)) || CALC.people.find(p => norm(p.name) === norm(firstName(name))))?.id || "";
   const opts = sel => `<option value="">— não está na mesa —</option>` + CALC.people.map(p => `<option value="${p.id}" ${p.id === sel ? "selected" : ""}>${esc(p.name)}</option>`).join("");
   const dlg = document.createElement("dialog"); document.body.appendChild(dlg);
   dlg.innerHTML = `<div class="dlg-bd">
-    <h2>Guardar no casal</h2>
-    <p class="sm mut" style="margin-top:0">Só a parte de vocês dois entra no saldo do casal. O resto da mesa acerta por fora (Compartilhar).</p>
+    <div class="dlg-head"><div class="ico pos">${icon("heart")}</div><div><h2>Guardar no casal</h2></div></div>
+    <p class="sm mut" style="margin:10px 0 14px">Só a parte de vocês dois entra no saldo do casal. O resto da mesa acerta por fora.</p>
     <label class="fld"><span>Na mesa, você é</span><select id="scMe">${opts(guess(me.name))}</select></label>
-    <label class="fld"><span>Na mesa, ${esc(you)} é</span><select id="scOther">${opts(guess(other.name))}</select></label>
-    <label class="fld"><span>Quem pagou a conta</span><select id="scPayer"><option value="${me.id}">Eu</option><option value="${other.id}">${esc(you)}</option></select></label>
+    <label class="fld"><span>Na mesa, ${you} é</span><select id="scOther">${opts(guess(other.name))}</select></label>
+    <label class="fld"><span>Quem pagou a conta</span><select id="scPayer"><option value="${me.id}">Eu</option><option value="${other.id}">${you}</option></select></label>
     <label class="fld"><span>Descrição</span><input id="scDesc" value="Conta na mesa"></label>
     <div class="row" style="margin-top:6px"><button class="btn grow" id="scOk">Guardar</button><button class="btn sec" id="scCancel">Cancelar</button></div>
   </div>`;
@@ -1044,15 +1169,12 @@ function paintNewExpense(){
           <input data-f="name" value="${esc(it.name)}" placeholder="item" class="grow">
           <input data-f="qty" type="number" inputmode="decimal" value="${it.qty}" min="0" step="1" style="width:58px">
           <input data-f="unitPrice" type="number" inputmode="decimal" value="${it.unitPrice}" min="0" step="0.01" style="width:82px">
-          <button class="btn ghost" data-rm="${i}" aria-label="remover">✕</button>
+          <button class="btn ghost" data-rm="${i}" aria-label="remover">${icon("close", 18, 2)}</button>
         </div>
         <div class="row wrap" style="margin-top:8px;gap:6px">${memChips(it.consumers)}</div>
       </div>`).join("");
     panel = `
-      <div class="grid4" style="margin-bottom:10px">
-        <button class="btn sec sm" id="neCam">📷 Foto</button><button class="btn sec sm" id="neGal">🖼️ Galeria</button>
-        <button class="btn sec sm" id="neText">📝 Texto</button><button class="btn sec sm" id="neManual">＋ Manual</button>
-      </div>
+      <div class="seg c4" style="margin-bottom:10px">${srcTiles("ne")}</div>
       <div id="neItems">${itemsHtml || '<p class="sm mut">Adicione itens por foto, texto ou manual; marque quem dividiu cada um.</p>'}</div>
       <div class="grid2" style="margin-top:12px">
         <label class="fld"><span>Serviço</span><div class="row"><input id="neSvc" type="number" inputmode="decimal" value="${Math.round(d.serviceRate*100)}" step="1" style="width:70px" ${d.serviceOn?"":"disabled"}><span class="mut">%</span><span class="chip ${d.serviceOn?"on":""}" id="neSvcOn">${d.serviceOn?"incluso":"sem"}</span></div></label>
@@ -1066,7 +1188,7 @@ function paintNewExpense(){
       <div class="between"><a class="link" id="neBack">← grupo</a><span class="mut sm">${d.editId ? "editar despesa" : "nova despesa"}</span></div>
       <label class="fld" style="margin-top:8px"><span>Descrição</span><input id="neDesc" value="${esc(d.description)}" placeholder="ex.: Jantar no boteco"></label>
       <div class="grid2">
-        <label class="fld"><span>Categoria</span><select id="neCat"><option value="">— sem categoria —</option>${CATEGORIES.map(c => `<option value="${esc(c)}" ${d.category===c?"selected":""}>${esc(c)}</option>`).join("")}</select></label>
+        <label class="fld"><span>Categoria</span><select id="neCat"><option value="">— sem categoria —</option>${CATEGORIES.map(c => `<option value="${esc(c)}" ${d.category===c?"selected":""}>${esc(catLabel(c))}</option>`).join("")}</select></label>
         <label class="fld"><span>Data</span><input id="neDate" type="date" value="${d.spent_at}"></label>
       </div>
       <div class="grid2">

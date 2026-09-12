@@ -74,6 +74,14 @@
 
 ---
 
+# Visual novo (direção C) — v26
+- [ ] Abas **no rodapé** (Racha · Casal · Grupos); cabeçalho verde só em Racha e Grupos; botão "entrar" só aparece em Grupos.
+- [ ] Em qualquer formulário (nova despesa, editar, acerto dos Grupos) as abas somem e o botão de salvar fica no rodapé.
+- [ ] Casal: saldo em número grande no bloco verde; o **+** fica dentro da barra de abas, à direita, e **nunca cobre um valor** da lista.
+- [ ] Nenhum ícone é emoji (categorias, foto/galeria/texto/manual, remover item).
+- [ ] Modo escuro do celular: tudo legível, botões verdes com texto branco nítido.
+- [ ] Sem internet a fonte cai pra fonte do sistema e o app continua funcionando.
+
 # Aba Casal (local, sem conta) — v25
 
 ## 15. Configurar o casal
@@ -86,7 +94,8 @@
 - [ ] **Só eu** com Ana pagando: 30 → "você passa a dever R$ 30,00" → home cai pra R$ 20,00.
 - [ ] **Só Ana**, **Valores** (quanto é de cada um).
 - [ ] **Por item**: 📷 foto (precisa da chave em ⚙) / 📝 texto / ＋ manual → marcar quem consumiu cada item → serviço/couvert/desconto → banner "✓ Bate com o total da conta".
-- [ ] A **prévia** sempre diz o efeito no saldo ("passa a te dever" / "você passa a dever" / "não muda").
+- [ ] A **prévia** mostra o **saldo que fica** depois da despesa, com a variação entre parênteses. Ex.: saldo 110,60 + mercado de 247,80 meio a meio, eu pagando → "Ana passa a te dever R$ 234,50 (+123,90)".
+- [ ] Trocar o jeito de dividir não perde o valor digitado (Meio a meio → Valores já vem 123,90 / 123,90).
 - [ ] Trocar **Quem pagou** (Eu / Ana) inverte o efeito.
 
 ## 17. Histórico, detalhe, editar, excluir
@@ -99,7 +108,7 @@
 - [ ] **Marcar como pago** registra o acerto (💸 no histórico) e volta pra "quites".
 
 ## 19. Ponte: mesa → casal
-- [ ] Na aba **Racha**, rachar uma conta com 3+ pessoas (incluindo vocês dois) → **💑 Guardar no casal**.
+- [ ] Na aba **Racha**, rachar uma conta com 3+ pessoas (incluindo vocês dois) → **Guardar no casal**.
 - [ ] O dialog já adivinha quem é você e quem é ela pelo nome; escolher quem pagou → **Guardar** → cai no Casal com a despesa "Conta na mesa" e **só a parte de vocês dois** (nota diz "Mesa com N pessoas · conta R$X").
 - [ ] Sem casal configurado, o botão manda pra aba Casal.
 
