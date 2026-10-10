@@ -203,13 +203,17 @@ export function createStore(backend){
 }
 function memoryBackend(){ const m = new Map(); return { getItem: k => (m.has(k) ? m.get(k) : null), setItem: (k, v) => m.set(k, v), removeItem: k => m.delete(k) }; }
 
-// ── Ponte pro sistema: átomo local → payload do RPC create_expense (Supabase) ─
+// ── Ponte pro sistema: átomo local → payload do RPC create_expense/update_expense (Supabase) ─
 // memberMap: { idLocal: server_member_id } (default: identidade). Um átomo, dois destinos.
 export function toRpcPayload(groupId, entry, memberMap = {}){
   const mid = id => (memberMap[id] || id);
   if(entry.type === "settlement"){
     return { kind: "settlement", group_id: groupId, from_member: mid(entry.from), to_member: mid(entry.to), amount: entry.amount, spent_at: entry.spentAt };
   }
+  const items = entry.items || [];
+  const subtotal = items.length ? round2(items.reduce((t, it) => t + (Number(it.qty) || 0) * (Number(it.unitPrice) || 0), 0)) : entry.total;
+  const rate = items.length ? (Number(entry.opts?.serviceRate) || 0) : 0;
+  const everyone = entry.participants || [];
   return {
     group_id: groupId,
     description: entry.description,
@@ -217,10 +221,43 @@ export function toRpcPayload(groupId, entry, memberMap = {}){
     note: entry.note,
     place: null,
     spent_at: entry.spentAt,
+    subtotal, service_rate: rate, service_amount: round2(subtotal * rate),
+    couvert: items.length ? round2(entry.opts?.couvert) : 0,
+    discount: items.length ? round2(entry.opts?.discount) : 0,
     total: entry.total,
-    items: (entry.items || []).map((it, i) => ({ name: it.name, qty: it.qty, unit_price: it.unitPrice, position: i, shares: (it.consumers || []).map(id => ({ member_id: mid(id), weight: 1 })) })),
+    items: items.map((it, i) => {
+      const who = (it.consumers || []).filter(id => everyone.includes(id));
+      return { name: it.name, qty: it.qty, unit_price: it.unitPrice, position: i, shares: (who.length ? who : everyone).map(id => ({ member_id: mid(id), weight: 1 })) };
+    }),
     payers: entry.payers.map(p => ({ member_id: mid(p.id), amount: p.amount })),
     shares: entry.shares.map(s => ({ member_id: mid(s.id), amount: s.amount })),
     ...(entry.receipt ? { receipt: entry.receipt } : {}),
   };
+}
+
+// ── Volta do sistema: linhas do Supabase → o MESMO livro-razão que as telas já usam ─────────
+// Pessoa = membro do grupo (id do membro). Assim a tela do casal não sabe se o dado veio do aparelho ou da nuvem.
+export function ledgerFromCloud({ group, members = [], expenses = [], settlements = [], myUserId = null, pixByUser = {} }){
+  const people = members.map(m => {
+    const px = m.user_id ? pixByUser[m.user_id] : null;
+    return { id: m.id, name: m.display_name, isMe: !!myUserId && m.user_id === myUserId, userId: m.user_id || null,
+             pix: px && px.pix_key ? { key: px.pix_key, name: px.pix_name || px.name || m.display_name } : null };
+  }).sort((a, b) => (b.isMe ? 1 : 0) - (a.isMe ? 1 : 0));
+  const rows = arr => (arr || []).map(x => ({ id: x.member_id, amount: round2(x.amount) })).filter(x => x.amount !== 0);
+  const exp = expenses.map(e => {
+    const shares = rows(e.shares), payers = rows(e.payers);
+    const items = (e.items || []).slice().sort((a, b) => (a.position || 0) - (b.position || 0))
+      .map(it => ({ name: it.name || "", qty: Number(it.qty) || 0, unitPrice: Number(it.unit_price) || 0, consumers: (it.shares || []).map(x => x.member_id) }));
+    const even = shares.length > 0 && shares.every(x => Math.abs(x.amount - shares[0].amount) <= 0.011);
+    return {
+      id: e.id, type: "expense", description: e.description || "Despesa", category: e.category || null, note: e.note || null,
+      spentAt: e.spent_at, createdAt: e.created_at, method: items.length ? "item" : even ? "equal" : "exact",
+      total: round2(e.total), participants: shares.map(x => x.id), shares, payers,
+      ...(items.length ? { items, opts: { serviceRate: Number(e.service_rate) || 0, couvert: Number(e.couvert) || 0, discount: Number(e.discount) || 0 } } : {}),
+    };
+  });
+  const set = settlements.map(x => ({ id: x.id, type: "settlement", from: x.from_member, to: x.to_member, amount: round2(x.amount),
+    spentAt: String(x.settled_at || "").slice(0, 10), createdAt: x.settled_at, note: x.note || null }));
+  const entries = [...exp, ...set].sort((a, b) => String(a.createdAt || "").localeCompare(String(b.createdAt || "")));
+  return { id: group.id, kind: group.kind || "group", name: group.name, people, entries, createdAt: group.created_at, cloud: true };
 }

@@ -1,6 +1,6 @@
 // Racha — controlador único (PWA estático, sem build). Três abas:
 //  • Racha  = calculadora de UMA conta (local, funciona sem login)
-//  • Casal  = livro-razão LOCAL do casal (js/model.js + localStorage; sem conta, uma só neste aparelho)
+//  • Casal  = livro-razão do casal NA NUVEM (Supabase, grupo kind="couple"): igual em todo aparelho, os dois lançam
 //  • Grupos = livro-razão multiusuário (Supabase): saldo acumulado, acerto por Pix
 // Pontes: o resultado do Racha pode ir pro Casal ("Guardar no casal") ou virar despesa de um grupo.
 import * as db from "./db.js";
@@ -10,7 +10,7 @@ import { simplifyDebts, netFromRows } from "./ledger.js";
 import { buildPixPayload } from "./pix.js";
 import { parseBill } from "./parse.js";
 import { parseMoney, brl } from "./money.js";
-import { createCouple, buildExpense, entryNet, ledgerBalances, coupleSummary, createStore, addEntry, replaceEntry, removeEntry } from "./model.js";
+import { buildExpense, entryNet, ledgerBalances, coupleSummary, createStore, removeEntry, toRpcPayload, ledgerFromCloud } from "./model.js";
 
 const $ = s => document.querySelector(s);
 const app = $("#app");
@@ -87,10 +87,11 @@ let ITEM_SINK = null;   // pra onde foto/texto mandam os itens lidos (definido p
 // Quem abre adota a config automaticamente e só precisa fazer login — nada de ⚙.
 function adoptConfigFromLink(){
   const q = new URLSearchParams(location.search);
-  const s = q.get("s"), k = q.get("k"), join = q.get("join");
+  const s = q.get("s"), k = q.get("k"), join = q.get("join"), to = q.get("to");
   let changed = false;
   if(s && k){ try{ db.setSbConfig(s, k); }catch(_){} q.delete("s"); q.delete("k"); changed = true; }
   if(join){ try{ localStorage.setItem("racha.join", join); }catch(_){} q.delete("join"); changed = true; }   // alvo do convite sobrevive ao login
+  if(to === "casal"){ try{ localStorage.setItem("racha.after", to); }catch(_){} q.delete("to"); changed = true; }   // logou pela aba Casal → volta pra ela
   if(changed){
     const qs = q.toString();
     history.replaceState(null, "", location.pathname + (qs ? "?" + qs : "") + location.hash);
@@ -109,8 +110,11 @@ async function boot(){
       PROFILE = ME ? await db.getMyProfile() : null;
       db.onAuthChange(async (u) => {
         ME = u; PROFILE = u ? await db.getMyProfile() : null; paintAcct();
+        if(!u) COUPLE = null;
         const pending = localStorage.getItem("racha.join");
         if(ME && pending && location.hash.indexOf("join") < 0){ localStorage.removeItem("racha.join"); return go("join/" + pending); }
+        const after = localStorage.getItem("racha.after");
+        if(ME && after){ localStorage.removeItem("racha.after"); cameFromAuth = false; if(location.hash.replace(/^#\/?/, "") === after) return route(); return go(after); }
         if(ME && cameFromAuth){ cameFromAuth = false; return go("grupos"); }   // login pelo link → abre os Grupos
         route();
       });
@@ -397,26 +401,71 @@ async function pushCalcToGroup(groupId, payerPersonId, description, r){
 /* ============================ ABA CASAL ============================= */
 /* ====================================================================== */
 // Livro-razão LOCAL do casal: js/model.js + localStorage. Sem conta, sem Supabase.
-// Um casal só, neste aparelho; o(a) parceiro(a) é só um nome (+ Pix opcional).
+// Mora no Supabase como um grupo de 2 (kind="couple"): igual em qualquer aparelho, e os dois veem e lançam.
+// ledgerFromCloud() devolve o mesmo formato de livro-razão do model.js, então as telas não sabem de onde o dado veio.
 // Visual (direção C, "campo de cor"): o saldo num bloco verde; o conteúdo sobe numa folha branca.
-const STORE = createStore();
-function getCouple(){ return STORE.list().find(l => l.kind === "couple") || null; }
+let COUPLE = null, COUPLE_SEQ = 0;
+const LOCAL = createStore();                       // histórico antigo, de quando o casal morava só neste aparelho
+function localCouple(){ try{ return LOCAL.list().find(l => l.kind === "couple") || null; }catch(_){ return null; } }
+function getCouple(){ return COUPLE; }
 const meOf = c => c.people.find(p => p.isMe) || c.people[0];
 const otherOf = c => c.people.find(p => !p.isMe) || c.people[1];
 const firstName = n => String(n || "").trim().split(/\s+/)[0] || "?";
 
-function routeCasal(){
-  const { parts } = parseHash();                     // casal · casal/new · casal/e/<id>
-  if(parts[1] === "new") return renderCoupleExpense(null);
-  if(parts[1] === "e" && parts[2]) return renderCoupleExpense(parts[2]);
-  return renderCasal();
+async function loadCouple(){
+  const g = (await db.myGroups()).find(x => x.kind === "couple");
+  if(!g){ COUPLE = null; return null; }
+  const [members, expenses, settlements] = await Promise.all([db.groupMembers(g.id), db.ledgerExpenses(g.id), db.listSettlements(g.id)]);
+  const pixByUser = {};
+  await Promise.all(members.filter(m => m.user_id).map(async m => { try{ pixByUser[m.user_id] = await db.memberPix(m.user_id); }catch(_){} }));
+  COUPLE = ledgerFromCloud({ group: g, members, expenses, settlements, myUserId: ME?.id, pixByUser });
+  return COUPLE;
+}
+const casalBox = html => { app.innerHTML = `<div style="padding:16px">${html}</div>`; };
+
+async function routeCasal(){
+  const { parts } = parseHash(), sub = parts[1];     // casal · casal/new · casal/e/<id>
+  const paint = () => {
+    if(sub === "new") return renderCoupleExpense(null);
+    if(sub === "e" && parts[2]) return renderCoupleExpense(parts[2]);
+    return renderCasal();
+  };
+  if(!db.hasConfig()){ document.body.dataset.screen = "auth"; return renderNeedConfig(); }
+  if(!ME){                                           // casal é compartilhado: precisa saber quem é você
+    document.body.dataset.screen = "auth"; document.body.classList.remove("form"); $("#topTitle").textContent = "Casal";
+    return renderLogin("casal");
+  }
+  const seq = ++COUPLE_SEQ;
+  if(COUPLE) paint();                                // mostra já o que tem e confere a nuvem por trás
+  else casalBox(`<div class="card" style="text-align:center"><div class="spin"></div><p class="mut sm">Buscando o casal…</p></div>`);
+  if(COUPLE && sub) return;                          // no meio de um formulário não recarrega (não perde o que foi digitado)
+  try{ await loadCouple(); }
+  catch(e){
+    console.error(e); if(seq !== COUPLE_SEQ) return;
+    if(!COUPLE) casalBox(`<div class="card"><h2>Não consegui carregar</h2><div class="banner warn">${esc(e?.message || "Sem conexão com o servidor.")}</div><button class="btn block" id="cpRetry">Tentar de novo</button></div>`);
+    if($("#cpRetry")) $("#cpRetry").onclick = route;
+    return;
+  }
+  if(seq !== COUPLE_SEQ || activeTab() !== "casal" || document.querySelector("dialog[open]")) return;
+  paint();
+}
+// depois de gravar: relê a nuvem e volta pra home do casal
+async function afterCoupleWrite(msg){
+  await loadCouple(); if(msg) toast(msg);
+  if(location.hash.replace(/^#\/?/, "") === "casal") renderCasal(); else go("casal");
 }
 
 function renderCasal(){
   const c = getCouple();
-  if(!c) return renderCoupleSetup(null);
+  if(!c || c.people.length < 2) return renderCoupleSetup(c);
   const me = meOf(c), other = otherOf(c), you = esc(firstName(other.name));
   const mine = round2(ledgerBalances(c)[me.id] || 0);          // >0: me devem · <0: eu devo
+  const link = inviteLink(c.id);
+  const invite = other.userId ? "" : `<div class="preview" style="margin-bottom:16px">
+      <div class="effect">${you} ainda não entrou</div>
+      <div class="sm" style="margin:4px 0 12px;font-weight:500">Mande o convite. ${you} entra com o próprio e-mail e passa a ver e lançar junto com você.</div>
+      <div class="row"><a class="btn sm grow" target="_blank" href="https://wa.me/?text=${encodeURIComponent("Entra no nosso racha de casal: " + link)}">Mandar no WhatsApp</a><button class="btn sec sm" id="cpCopy">Copiar link</button></div>
+    </div>`;
   const quite = Math.abs(mine) < 0.005;
   const label = quite ? "Tudo certo entre vocês" : mine > 0 ? `${you} te deve` : `Você deve a ${you}`;
   const actions = quite ? "" : mine > 0
@@ -450,13 +499,23 @@ function renderCasal(){
       ${actions}
     </div></section>
     <section class="sheet"><div class="wrapc">
-      <div class="sheet-head"><h2 style="margin:0">Histórico</h2><span class="sm mut">${count ? `${count} ${count === 1 ? "lançamento" : "lançamentos"} · ` : ""}só neste aparelho</span></div>
+      <div class="sheet-head"><h2 style="margin:0">Histórico</h2><span class="sm mut">${count ? `${count} ${count === 1 ? "lançamento" : "lançamentos"}` : ""}</span></div>
+      ${invite}
       ${rows || `<div class="empty">Nenhum lançamento ainda.<br>Toque no <b>+</b> pra lançar a primeira despesa — ou rache uma conta na aba <b>Racha</b> e guarde a parte de vocês.</div>`}
     </div></section>
     <button class="fab-plus" id="cpNew" aria-label="nova despesa">${icon("plus", 26, 2.2)}</button>`;
   $("#cpEdit").onclick = () => renderCoupleSetup(c);
   $("#cpCfg").onclick = openCfg;
   $("#cpNew").onclick = () => go("casal/new");
+  if($("#cpCopy")) $("#cpCopy").onclick = () => copy(link);
+  if(!LIVE) LIVE = db.subscribeGroup(c.id, () => {            // o outro lançou? atualiza sozinho
+    clearTimeout(liveTimer);
+    liveTimer = setTimeout(async () => {
+      if(activeTab() !== "casal") return;
+      try{ await loadCouple(); }catch(_){ return; }
+      if(parseHash().parts.length === 1 && !document.querySelector("dialog[open]")) renderCasal();
+    }, 500);
+  });
   if($("#cpSettle")) $("#cpSettle").onclick = coupleSettleDialog;
   if($("#cpNudge")) $("#cpNudge").onclick = () => {
     let msg = `Oi! Só lembrando do nosso racha: você está com *${brl(mine)}* pra me acertar 🙂`;
@@ -471,47 +530,82 @@ function renderCasal(){
 }
 
 function renderCoupleSetup(c){
-  const me = c ? meOf(c) : null, other = c ? otherOf(c) : null;
+  const me = c ? meOf(c) : null, other = c && c.people.length > 1 ? otherOf(c) : null;
+  const old = c ? null : localCouple();              // casal antigo, guardado só neste aparelho
+  const oldN = old?.entries?.length || 0;
+  const ready = c && other;
   app.innerHTML = `
     <section class="hero hero-form"><div class="wrapc">
       <div class="hero-top">
-        ${c ? `<button class="iconbtn" id="csBack" aria-label="voltar">${icon("back", 19, 2)}</button>` : ""}
-        <div class="grow hero-title">${c ? "Editar o casal" : "Vocês dois"}</div>
+        ${ready ? `<button class="iconbtn" id="csBack" aria-label="voltar">${icon("back", 19, 2)}</button>` : ""}
+        <div class="grow hero-title">${ready ? "Editar o casal" : "Vocês dois"}</div>
         <button class="iconbtn" id="csCfg" aria-label="configurações">${icon("gear", 19)}</button>
       </div>
-      ${c ? "" : `<div class="hero-label" style="margin-top:20px;font-size:18px;font-weight:700;opacity:1">Dividam as contas sem conta e sem login.</div>
-      <div class="sm" style="opacity:.82;margin-top:6px">Fica só neste aparelho. Vocês lançam as despesas e o app diz quem deve quanto.</div>`}
+      ${ready ? "" : `<div class="hero-label" style="margin-top:20px;font-size:18px;font-weight:700;opacity:1">As contas de vocês dois, iguais em qualquer aparelho.</div>
+      <div class="sm" style="opacity:.82;margin-top:6px">Você cria, manda o convite e os dois passam a ver e lançar.</div>`}
     </div></section>
     <section class="sheet form"><div class="wrapc stack">
+      ${oldN ? `<div class="preview"><div class="effect">Achei ${oldN} ${oldN === 1 ? "lançamento" : "lançamentos"} guardados neste aparelho</div><div class="sm" style="margin-top:4px;font-weight:500">Eles sobem junto quando você começar, com o mesmo saldo.</div></div>` : ""}
       <div><div class="flabel">Você</div>
         <div class="stack" style="gap:9px">
-          <label class="tile"><span>Nome</span><input id="csMe" value="${esc(me?.name || PROFILE?.name || "")}" placeholder="ex.: Fábio" autocomplete="given-name"></label>
-          <label class="tile"><span>Pix</span><input id="csMePix" value="${esc(me?.pix?.key || PROFILE?.pix_key || "")}" placeholder="pra receber (opcional)"></label>
+          <label class="tile"><span>Nome</span><input id="csMe" value="${esc(me?.name || (old ? meOf(old).name : "") || PROFILE?.name || "")}" placeholder="ex.: Fábio" autocomplete="given-name"></label>
+          <label class="tile"><span>Pix</span><input id="csMePix" value="${esc(PROFILE?.pix_key || (old ? meOf(old).pix?.key : "") || "")}" placeholder="pra receber (opcional)"></label>
         </div></div>
       <div><div class="flabel">Parceiro(a)</div>
         <div class="stack" style="gap:9px">
-          <label class="tile"><span>Nome</span><input id="csOther" value="${esc(other?.name || "")}" placeholder="ex.: Ana"></label>
-          <label class="tile"><span>Pix</span><input id="csOtherPix" value="${esc(other?.pix?.key || "")}" placeholder="pra você pagar (opcional)"></label>
+          <label class="tile"><span>Nome</span><input id="csOther" value="${esc(other?.name || (old ? otherOf(old).name : "") || "")}" placeholder="ex.: Ana"></label>
+          <div class="sm mut">${other?.userId ? "A chave Pix é a que a própria pessoa cadastrou." : "A chave Pix aparece quando a pessoa entrar pelo convite e cadastrar a dela."}</div>
         </div></div>
-      <button class="btn block" id="csSave">${c ? "Salvar" : "Começar"}</button>
-      ${c ? `<button class="btn ghost block" id="csWipe" style="color:var(--danger)">Apagar o casal e todo o histórico</button>` : ""}
+      <button class="btn block" id="csSave">${ready ? "Salvar" : "Começar"}</button>
+      <div class="sm mut" style="text-align:center">Conectado como ${esc(ME?.email || "")} · <a class="link" id="csOut">sair</a></div>
+      ${ready ? `<button class="btn ghost block" id="csWipe" style="color:var(--danger)">Apagar o casal e todo o histórico</button>` : ""}
     </div></section>`;
   $("#csCfg").onclick = openCfg;
   if($("#csBack")) $("#csBack").onclick = renderCasal;
-  $("#csSave").onclick = () => {
-    const meName = $("#csMe").value.trim(), otherName = $("#csOther").value.trim();
-    const mePix = $("#csMePix").value.trim(), otherPix = $("#csOtherPix").value.trim();
+  $("#csOut").onclick = async () => { if(!confirm("Sair desta conta neste aparelho?")) return; await db.signOut(); ME = null; PROFILE = null; COUPLE = null; paintAcct(); route(); };
+  $("#csSave").onclick = async () => {
+    const meName = $("#csMe").value.trim(), otherName = $("#csOther").value.trim(), mePix = $("#csMePix").value.trim();
     if(!meName || !otherName){ toast("Preencha os dois nomes"); return; }
-    const pix = (k, n) => k ? { key: k, name: n } : null;
-    if(c){
-      const people = c.people.map(p => p.isMe ? { ...p, name: meName, pix: pix(mePix, meName) } : { ...p, name: otherName, pix: pix(otherPix, otherName) });
-      STORE.save({ ...c, name: `${meName} & ${otherName}`, people });
-    } else {
-      STORE.save(createCouple(meName, otherName, { myPix: pix(mePix, meName), otherPix: pix(otherPix, otherName) }));
-    }
-    toast(c ? "Salvo ✓" : "Casal criado ✓"); renderCasal();
+    const btn = $("#csSave"); btn.disabled = true; btn.textContent = "Salvando…";
+    try{
+      PROFILE = await db.saveProfile({ name: meName, pix_key: mePix || null, pix_name: PROFILE?.pix_name || meName });
+      let moved = 0;
+      if(c){
+        await db.renameMember(me.id, meName);
+        if(other) await db.renameMember(other.id, otherName); else await db.addGhost(c.id, otherName);
+        try{ await db.renameGroup(c.id, `${meName} & ${otherName}`); }catch(_){}        // só quem criou consegue renomear
+      } else {
+        const g = await db.createGroup(`${meName} & ${otherName}`, "couple");
+        await db.addGhost(g.id, otherName);
+        moved = await importLocalCouple(g.id, old);
+      }
+      await loadCouple();
+      toast(moved ? `Casal criado ✓ · ${moved} ${moved === 1 ? "lançamento subiu" : "lançamentos subiram"}` : ready ? "Salvo ✓" : "Casal criado ✓");
+      renderCasal();
+    }catch(e){ console.error(e); toast(e?.message || "Não consegui salvar", 5000); btn.disabled = false; btn.textContent = ready ? "Salvar" : "Começar"; }
   };
-  if($("#csWipe")) $("#csWipe").onclick = () => { if(confirm("Apagar o casal e TODO o histórico deste aparelho? Não dá pra desfazer.")){ STORE.remove(c.id); toast("Apagado"); renderCasal(); } };
+  if($("#csWipe")) $("#csWipe").onclick = async () => {
+    if(!confirm("Apagar o casal e TODO o histórico, pra vocês dois? Não dá pra desfazer.")) return;
+    try{ await db.deleteGroup(c.id); await loadCouple(); }catch(e){ console.error(e); toast(e?.message || "Não consegui apagar", 5000); return; }
+    if(COUPLE){ toast("Só quem criou o casal pode apagar", 4500); return; }
+    toast("Apagado"); renderCasal();
+  };
+}
+// sobe o histórico que morava só neste aparelho pro casal recém-criado (mesmas pessoas, mesmos valores)
+async function importLocalCouple(groupId, old){
+  if(!old || !old.entries?.length) return 0;
+  const members = await db.groupMembers(groupId);
+  const mine = members.find(m => m.user_id === ME?.id), ghost = members.find(m => !m.user_id);
+  if(!mine || !ghost) return 0;
+  const map = { [meOf(old).id]: mine.id, [otherOf(old).id]: ghost.id };
+  let n = 0;
+  for(const e of old.entries){
+    if(e.type === "settlement") await db.addSettlement({ groupId, from: map[e.from], to: map[e.to], amount: e.amount, settledAt: e.spentAt ? e.spentAt + "T12:00:00Z" : null });
+    else await db.saveExpense(toRpcPayload(groupId, e, map));
+    n++;
+  }
+  try{ localStorage.setItem("racha.model.v1.subiu", localStorage.getItem("racha.model.v1") || ""); LOCAL.remove(old.id); }catch(_){}   // guarda uma cópia e tira da frente
+  return n;
 }
 
 /* ---------- nova / editar despesa do casal ---------- */
@@ -683,12 +777,16 @@ function refreshCouplePreview(){
     <div class="rule"></div>
     <div class="effect num">${effect}</div>`;
 }
-function saveCoupleExpense(){
+async function saveCoupleExpense(){
   const d = CDRAFT, c = getCouple();
   let atom; try{ atom = coupleAtom(d, c); }catch(e){ toast(e?.message || "Não consegui montar a despesa"); return; }
   if(!(atom.total > 0)){ toast(d.mode === "exact" ? "Preencha os valores" : d.mode === "item" ? "Adicione itens com valor" : "Informe o valor"); return; }
-  STORE.save(d.editId ? replaceEntry(c, atom) : addEntry(c, atom));
-  toast(d.editId ? "Despesa atualizada ✓" : "Despesa salva ✓"); go("casal");
+  const btn = $("#ceSave"); btn.disabled = true; btn.textContent = "Salvando…";
+  try{
+    const payload = toRpcPayload(c.id, atom);
+    if(d.editId) await db.updateExpense({ ...payload, id: d.editId }); else await db.saveExpense(payload);
+    await afterCoupleWrite(d.editId ? "Despesa atualizada ✓" : "Despesa salva ✓");
+  }catch(e){ console.error(e); toast(e?.message || "Não consegui salvar. Confira a internet.", 5000); btn.disabled = false; btn.textContent = d.editId ? "Salvar alterações" : "Salvar despesa"; }
 }
 function applyToCouple(parsed){
   if(!parsed.items?.length){ toast("Não achei itens. Tente manual."); return; }
@@ -732,7 +830,11 @@ function coupleEntryDialog(entryId){
   const close = () => { dlg.close(); dlg.remove(); };
   dlg.querySelector("#cdClose").onclick = close;
   if(dlg.querySelector("#cdEdit")) dlg.querySelector("#cdEdit").onclick = () => { close(); go(`casal/e/${e.id}`); };
-  dlg.querySelector("#cdDel").onclick = () => { if(!confirm("Excluir este lançamento?")) return; STORE.save(removeEntry(c, e.id)); close(); toast("Excluído"); renderCasal(); };
+  dlg.querySelector("#cdDel").onclick = async () => {
+    if(!confirm("Excluir este lançamento? Some pra vocês dois.")) return;
+    try{ await (e.type === "settlement" ? db.deleteSettlement(e.id) : db.deleteExpense(e.id)); close(); await afterCoupleWrite("Excluído"); }
+    catch(err){ console.error(err); toast(err?.message || "Não consegui excluir", 5000); }
+  };
 }
 function coupleSettleDialog(){
   const c = getCouple(), me = meOf(c), other = otherOf(c), you = esc(firstName(other.name));
@@ -759,16 +861,22 @@ function coupleSettleDialog(){
   }
   const close = () => { dlg.close(); dlg.remove(); };
   dlg.querySelector("#stClose").onclick = close;
-  dlg.querySelector("#stDone").onclick = () => { STORE.addSettlement(c.id, t.from, t.to, t.amount); close(); toast("Acerto registrado ✓"); renderCasal(); };
+  dlg.querySelector("#stDone").onclick = async () => {
+    dlg.querySelector("#stDone").disabled = true;
+    try{ await db.addSettlement({ groupId: c.id, from: t.from, to: t.to, amount: t.amount }); close(); await afterCoupleWrite("Acerto registrado ✓"); }
+    catch(err){ console.error(err); toast(err?.message || "Não consegui registrar", 5000); dlg.querySelector("#stDone").disabled = false; }
+  };
 }
 
 /* ---------- ponte: guardar a parte do casal de uma conta rachada na mesa ---------- */
-function saveCalcToCouple(){
+async function saveCalcToCouple(){
   const r = calcSplit();
   if(r.total <= 0){ toast("Adicione itens com valor primeiro"); return; }
   if(CALC.people.length < 1){ toast("Adicione as pessoas primeiro"); return; }
-  const c = getCouple();
-  if(!c){ toast("Configure o casal primeiro"); return go("casal"); }
+  if(!ME){ toast("Entre na aba Casal primeiro"); return go("casal"); }
+  let c = getCouple();
+  if(!c){ try{ c = await loadCouple(); }catch(e){ console.error(e); toast("Sem conexão com o servidor"); return; } }
+  if(!c || c.people.length < 2){ toast("Configure o casal primeiro"); return go("casal"); }
   const me = meOf(c), other = otherOf(c), you = esc(firstName(other.name));
   const guess = name => (CALC.people.find(p => norm(p.name) === norm(name)) || CALC.people.find(p => norm(p.name) === norm(firstName(name))))?.id || "";
   const opts = sel => `<option value="">— não está na mesa —</option>` + CALC.people.map(p => `<option value="${p.id}" ${p.id === sel ? "selected" : ""}>${esc(p.name)}</option>`).join("");
@@ -785,7 +893,7 @@ function saveCalcToCouple(){
   dlg.showModal();
   const close = () => { dlg.close(); dlg.remove(); };
   dlg.querySelector("#scCancel").onclick = close;
-  dlg.querySelector("#scOk").onclick = () => {
+  dlg.querySelector("#scOk").onclick = async () => {
     const meCalc = dlg.querySelector("#scMe").value, otherCalc = dlg.querySelector("#scOther").value;
     if(meCalc && otherCalc && meCalc === otherCalc){ toast("Escolha pessoas diferentes"); return; }
     const myShare = meCalc ? round2(r.shares[meCalc] || 0) : 0, herShare = otherCalc ? round2(r.shares[otherCalc] || 0) : 0;
@@ -796,8 +904,9 @@ function saveCalcToCouple(){
       payers: dlg.querySelector("#scPayer").value,
       note: `Mesa com ${CALC.people.length} ${CALC.people.length === 1 ? "pessoa" : "pessoas"} · conta ${brl(r.total)}`,
     });
-    STORE.save(addEntry(c, atom));
-    close(); toast("Guardado no casal ✓"); go("casal");
+    dlg.querySelector("#scOk").disabled = true;
+    try{ await db.saveExpense(toRpcPayload(c.id, atom)); await loadCouple(); close(); toast("Guardado no casal ✓"); go("casal"); }
+    catch(e){ console.error(e); toast(e?.message || "Não consegui guardar", 5000); dlg.querySelector("#scOk").disabled = false; }
   };
 }
 
@@ -830,10 +939,10 @@ function authError(e){
     return "O Supabase não conseguiu ENVIAR o e-mail — quase sempre é o SMTP recusando. Veja Logs → Auth (erro 535 = senha de app errada). Pra logar já: desligue o 'custom SMTP' e use o link.";
   return s;
 }
-function renderLogin(){
+function renderLogin(where){
   app.innerHTML = `<div class="card">
-    <h2>Entrar nos Grupos</h2>
-    <p class="mut">Coloque seu e-mail; mandamos um link de acesso. Sem senha.</p>
+    <h2>${where === "casal" ? "Entrar no Casal" : "Entrar nos Grupos"}</h2>
+    <p class="mut">${where === "casal" ? "As contas de vocês dois ficam guardadas na nuvem, iguais em qualquer aparelho. " : ""}Coloque seu e-mail; mandamos um link de acesso. Sem senha.</p>
     ${INIT_ERR ? `<div class="banner warn">${esc(INIT_ERR)}</div>` : ""}
     <label class="fld"><span>Seu e-mail</span><input id="loginEmail" type="email" inputmode="email" placeholder="voce@email.com" autocomplete="email"></label>
     <button class="btn block" id="loginBtn">Enviar acesso por e-mail</button>
@@ -848,6 +957,7 @@ function renderLogin(){
     const email = $("#loginEmail").value.trim();
     if(!/.+@.+\..+/.test(email)){ toast("E-mail inválido"); return; }
     $("#loginBtn").disabled = true; $("#loginMsg").textContent = "Enviando…";
+    try{ if(where === "casal") localStorage.setItem("racha.after", "casal"); else localStorage.removeItem("racha.after"); }catch(_){}
     if(!(await ensureInit())){ $("#loginMsg").textContent = INIT_ERR || "Não consegui conectar ao Supabase."; $("#loginBtn").disabled = false; return; }
     try{
       await db.sendMagicLink(email); sentEmail = email;
@@ -893,7 +1003,7 @@ async function renderGroups(){
       <div class="row">${avatar(g.name)}<div><div class="b">${esc(g.name)}</div><div class="sm mut">${friend ? "amigo" : esc(g.currency||"BRL")}</div></div></div>
       <span class="pill ${cls}">${txt}</span></div>`;
   };
-  const gNets = nets.filter(x => x.g.kind !== "friend"), fNets = nets.filter(x => x.g.kind === "friend");
+  const gNets = nets.filter(x => x.g.kind !== "friend" && x.g.kind !== "couple"), fNets = nets.filter(x => x.g.kind === "friend");
   const gList = gNets.length ? gNets.map(x => row(x, false)).join("") : `<div class="empty">Nenhum grupo ainda.</div>`;
   const fCard = fNets.length ? `<div class="card"><h3 style="margin:0 0 .4em">Amigos</h3>${fNets.map(x => row(x, true)).join("")}</div>` : "";
   app.innerHTML = `
@@ -1427,7 +1537,9 @@ async function renderJoin(groupId){
     <h2>Entrar em “${esc(name||"Grupo")}”</h2>${ghostBtns}
     <button class="btn block" id="joinNew" style="margin-top:8px">Entrar como ${esc(PROFILE?.name || "novo membro")}</button>
     <p class="sm mut" style="text-align:center;margin-top:10px"><a class="link" href="#grupos">cancelar</a></p></div>`;
-  const join = async (claim) => { await guard(() => db.joinGroup(groupId, claim), "Não consegui entrar"); localStorage.removeItem("racha.join"); toast("Você entrou no grupo ✓"); go(`g/${groupId}`); };
+  const join = async (claim) => { await guard(() => db.joinGroup(groupId, claim), "Não consegui entrar"); localStorage.removeItem("racha.join");
+    const kind = (await db.myGroups().catch(() => [])).find(g => g.id === groupId)?.kind;
+    COUPLE = null; toast(kind === "couple" ? "Você entrou no casal ✓" : "Você entrou no grupo ✓"); go(kind === "couple" ? "casal" : `g/${groupId}`); };
   $("#joinNew").onclick = () => join(null);
   app.querySelectorAll("[data-claim]").forEach(b => b.onclick = () => join(b.dataset.claim));
 }

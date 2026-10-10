@@ -82,7 +82,19 @@
 - [ ] Modo escuro do celular: tudo legível, botões verdes com texto branco nítido.
 - [ ] Sem internet a fonte cai pra fonte do sistema e o app continua funcionando.
 
-# Aba Casal (local, sem conta) — v25
+# Casal na nuvem — v29 (substitui "local, sem conta")
+- [ ] Aba **Casal** sem login pede o e-mail ("Entrar no Casal"); o link do e-mail volta direto pro Casal.
+- [ ] Primeira vez: "Vocês dois" → seu nome, Pix, nome do(a) parceiro(a) → **Começar**. Se havia lançamentos antigos no aparelho, eles sobem com o mesmo saldo.
+- [ ] Aparece o cartão **"Ana ainda não entrou"** com o convite (WhatsApp / copiar link).
+- [ ] **Outro aparelho**: abrir o app, entrar com o MESMO e-mail → mesmo saldo e mesmo histórico.
+- [ ] **A outra pessoa**: abre o convite, entra com o e-mail dela, toca em **"Sou Ana"** → cai no Casal vendo tudo. O cartão de convite some pra você.
+- [ ] Ela lança uma despesa → aparece no seu aparelho sozinha em ~1s, e o saldo muda.
+- [ ] Editar, excluir e acertar por qualquer um dos dois reflete no outro.
+- [ ] A chave Pix dela aparece no acerto depois que ela cadastrar a própria (⚙ ou "editar o casal").
+- [ ] Sem internet: o Casal avisa que não carregou e oferece tentar de novo (a aba Racha continua funcionando).
+- [ ] Na aba **Grupos**, cada grupo aparece **uma vez só** e o casal não aparece na lista (tem a aba dele).
+
+# (histórico) Aba Casal local — v25
 
 ## 15. Configurar o casal
 - [ ] Aba **Casal** abre direto em "Vocês dois" (sem login, sem "Ative os Grupos").

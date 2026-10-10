@@ -6,7 +6,7 @@ import { buildPixPayload, validatePix, crc16 } from "../js/pix.js";
 import { parseBill } from "../js/parse.js";
 import { parseMoney } from "../js/money.js";
 import { normalizeSupabaseUrl } from "../js/db.js";
-import { createCouple, buildExpense, entryNet, ledgerBalances, coupleSummary, createStore, toRpcPayload } from "../js/model.js";
+import { createCouple, buildExpense, entryNet, ledgerBalances, coupleSummary, createStore, toRpcPayload, ledgerFromCloud } from "../js/model.js";
 
 let pass = 0;
 const ok = (name, fn) => { fn(); pass++; console.log("  ok —", name); };
@@ -238,6 +238,50 @@ ok("toRpcPayload mapeia o átomo pro Supabase (member_id, soma bate)", () => {
   assert.equal(p.category, "Mercado");
   assert.equal(p.payers[0].member_id, "m1");
   assert.equal(sumCents(Object.fromEntries(p.shares.map(s => [s.member_id, s.amount]))), 10000);
+});
+
+console.log("model.js — ida e volta da nuvem (casal no Supabase)");
+// simula o servidor: guarda o payload do RPC e devolve linhas no formato das tabelas
+const asRow = (id, p, at) => ({ id, description: p.description, category: p.category, note: p.note, spent_at: p.spent_at, created_at: at,
+  subtotal: p.subtotal, service_rate: p.service_rate, service_amount: p.service_amount, couvert: p.couvert, discount: p.discount, total: p.total,
+  items: p.items.map(it => ({ name: it.name, qty: it.qty, unit_price: it.unit_price, position: it.position, shares: it.shares })), payers: p.payers, shares: p.shares });
+const GROUP = { id: "g1", kind: "couple", name: "Fábio & Ana" };
+const MEMBERS = [{ id: "mA", user_id: null, display_name: "Ana" }, { id: "mF", user_id: "uF", display_name: "Fábio" }];
+
+ok("o que sobe volta igual: mesmo saldo no aparelho e na nuvem", () => {
+  const local = [
+    buildExpense({ description: "Mercado", category: "🛒 Mercado", amount: 247.80, method: "equal", participants: ["mF", "mA"], payers: "mF" }),
+    buildExpense({ description: "Uber", amount: 30, method: "equal", participants: ["mF"], payers: "mA" }),
+    buildExpense({ description: "Jantar", method: "item", participants: ["mF", "mA"], payers: "mA", opts: { serviceRate: 0.10 },
+      items: [{ name: "Picanha", qty: 1, unitPrice: 98, consumers: ["mF"] }, { name: "Caipirinha", qty: 2, unitPrice: 28, consumers: [] }] }),
+  ];
+  const rows = local.map((e, i) => asRow("e" + i, toRpcPayload("g1", e), "2026-10-0" + (i + 1)));
+  rows.forEach(r => {                                    // o servidor recusa se pagadores/rateio não somam o total
+    assert.equal(sumCents(Object.fromEntries(r.payers.map(x => [x.member_id, x.amount]))), Math.round(r.total * 100));
+    assert.equal(sumCents(Object.fromEntries(r.shares.map(x => [x.member_id, x.amount]))), Math.round(r.total * 100));
+  });
+  const cloud = ledgerFromCloud({ group: GROUP, members: MEMBERS, expenses: rows, settlements: [], myUserId: "uF" });
+  const want = ledgerBalances({ people: [{ id: "mF" }, { id: "mA" }], entries: local });
+  assert.deepEqual(ledgerBalances(cloud), want);
+  assert.equal(cloud.people[0].id, "mF"); assert.ok(cloud.people[0].isMe);     // eu venho primeiro
+  assert.equal(cloud.people[1].userId, null);                                  // Ana ainda é fantasma
+  assert.equal(cloud.entries[1].participants.length, 1);                       // "só eu" continua só eu
+  assert.equal(cloud.entries[2].method, "item");
+  assert.equal(cloud.entries[2].opts.serviceRate, 0.10);
+  assert.equal(rows[2].items[1].shares.length, 2);                             // item sem ninguém marcado = os dois
+  assert.equal(rows[2].subtotal, 154); assert.equal(rows[2].service_amount, 15.4);
+});
+
+ok("acerto da nuvem zera o saldo e a chave Pix vem do perfil de quem tem conta", () => {
+  const e = buildExpense({ amount: 100, method: "equal", participants: ["mF", "mA"], payers: "mF" });
+  const cloud = ledgerFromCloud({ group: GROUP, members: MEMBERS, myUserId: "uF",
+    expenses: [asRow("e0", toRpcPayload("g1", e), "2026-10-01T10:00:00Z")],
+    settlements: [{ id: "s1", from_member: "mA", to_member: "mF", amount: 50, settled_at: "2026-10-02T12:00:00Z" }],
+    pixByUser: { uF: { pix_key: "fabio@pix.com", pix_name: "Fábio Gomes" } } });
+  assert.equal(coupleSummary(cloud), null);
+  assert.equal(cloud.entries[1].type, "settlement"); assert.equal(cloud.entries[1].spentAt, "2026-10-02");
+  assert.deepEqual(cloud.people[0].pix, { key: "fabio@pix.com", name: "Fábio Gomes" });
+  assert.equal(cloud.people[1].pix, null);
 });
 
 console.log(`\n${pass} testes passaram ✓`);

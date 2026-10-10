@@ -82,6 +82,7 @@ export async function sendMagicLink(email){
   if(c){ params.set("s", c.url); params.set("k", c.anon); }
   const joinId = (location.hash.match(/join\/([^/?#&]+)/) || [])[1];   // está entrando por convite? leva o grupo
   if(joinId) params.set("join", joinId);
+  if(/^#\/?casal/.test(location.hash)) params.set("to", "casal");                       // logou pela aba Casal? volta pra ela
   const qs = params.toString();
   const redirect = base + (qs ? "?" + qs : "");
   return unwrap(await sb().auth.signInWithOtp({ email: email.trim(), options: { emailRedirectTo: redirect } }));
@@ -108,7 +109,9 @@ export async function myGroups(){
   const rows = unwrap(await sb().from("group_members")
     .select("group:groups(id,name,currency,created_by,created_at,kind)")
     .order("created_at", { ascending: false }));
-  return (rows || []).map(r => r.group).filter(Boolean);
+  // o RLS devolve a linha de CADA membro dos meus grupos → um grupo de 2 viria duas vezes; deduplica
+  const seen = new Set();
+  return (rows || []).map(r => r.group).filter(g => g && !seen.has(g.id) && seen.add(g.id));
 }
 export async function createGroup(name, kind = "group"){
   const u = await currentUser(); if(!u) throw new Error("não autenticado");
@@ -143,6 +146,9 @@ export async function addGhost(groupId, displayName){
   return unwrap(await sb().from("group_members")
     .insert({ group_id: groupId, display_name: displayName.trim() }).select().single());
 }
+export async function renameMember(memberId, displayName){
+  return unwrap(await sb().from("group_members").update({ display_name: displayName.trim() }).eq("id", memberId).select().single());
+}
 export async function removeMember(memberId){
   return unwrap(await sb().from("group_members").delete().eq("id", memberId));
 }
@@ -162,6 +168,12 @@ export async function getExpense(id){
   return unwrap(await sb().from("expenses")
     .select("*, items:expense_items(*, shares:item_shares(member_id,weight)), payers:expense_payers(member_id,amount), shares:expense_shares(member_id,amount)")
     .eq("id", id).single());
+}
+// livro-razão inteiro do grupo numa consulta (sem a foto do recibo, que é pesada) — alimenta ledgerFromCloud()
+export async function ledgerExpenses(groupId){
+  return unwrap(await sb().from("expenses")
+    .select("id,description,category,note,spent_at,subtotal,service_rate,couvert,discount,total,created_at,items:expense_items(name,qty,unit_price,position,shares:item_shares(member_id,weight)),payers:expense_payers(member_id,amount),shares:expense_shares(member_id,amount)")
+    .eq("group_id", groupId).order("created_at"));
 }
 // payload já com shares calculados (split.js) — RPC insere tudo numa transação
 export async function saveExpense(payload){ return unwrap(await sb().rpc("create_expense", { payload })); }
@@ -212,12 +224,13 @@ export async function listSettlements(groupId){
   return unwrap(await sb().from("settlements")
     .select("*").eq("group_id", groupId).order("settled_at", { ascending: false }));
 }
-export async function addSettlement({ groupId, from, to, amount, method = "pix", note = null }){
+export async function addSettlement({ groupId, from, to, amount, method = "pix", note = null, settledAt = null }){
   const u = await currentUser();
   return unwrap(await sb().from("settlements")
-    .insert({ group_id: groupId, from_member: from, to_member: to, amount, method, note, created_by: u?.id })
+    .insert({ group_id: groupId, from_member: from, to_member: to, amount, method, note, created_by: u?.id, ...(settledAt ? { settled_at: settledAt } : {}) })
     .select().single());
 }
+export async function deleteSettlement(id){ return unwrap(await sb().from("settlements").delete().eq("id", id)); }
 
 /* pega a chave pix do recebedor (membro com conta) pra montar o copia-e-cola */
 export async function memberPix(userId){
