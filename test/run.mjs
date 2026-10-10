@@ -133,6 +133,30 @@ ok("parseBill lê itens, subtotal, serviço e total", () => {
   assert.equal(r.subtotal, 119.90);
   assert.equal(r.service.rate, 10);
   assert.equal(r.total, 131.89);
+  assert.equal(r.items[0].unitPrice, 15);                            // valor no fim = total da linha
+  assert.equal(Math.round(r.items.reduce((s, i) => s + i.qty * i.unitPrice, 0) * 100), 11990);   // itens somam o subtotal impresso
+});
+ok("parseBill: linha com quantidade usa o valor final como total da linha", () => {
+  const r = parseBill(["Picanha           98,00", "Bolinho de feijoada 62,00", "2 Caipirinha      56,00",
+    "Subtotal         216,00", "Serviço 10%       21,60", "Total            237,60"].join("\n"));
+  assert.equal(r.items.length, 3);
+  assert.equal(r.items[2].name, "Caipirinha");
+  assert.equal(r.items[2].qty, 2);
+  assert.equal(r.items[2].unitPrice, 28);
+  assert.equal(Math.round(r.items.reduce((s, i) => s + i.qty * i.unitPrice, 0) * 100), 21600);
+  assert.equal(r.subtotal, 216);
+  assert.equal(r.total, 237.60);
+});
+ok("parseBill: unitário e total impressos na mesma linha — tira o unitário do nome", () => {
+  const r = parseBill("2 x 28,00 Caipirinha 56,00");
+  assert.deepEqual(r.items, [{ name: "Caipirinha", qty: 2, unitPrice: 28 }]);
+});
+ok("parseBill: 3 itens por 10,00 (unitário não inteiro) fecha ao centavo no rateio", () => {
+  const r = parseBill("3 Pastel 10,00");
+  assert.equal(r.items[0].qty, 3);
+  const s = computeShares(["a", "b", "c"], r.items.map(i => ({ ...i, consumers: ["a", "b", "c"] })));
+  assert.equal(Math.round(s.total * 100), 1000);
+  assert.equal(sumCents(s.shares), 1000);
 });
 
 console.log("db.js");

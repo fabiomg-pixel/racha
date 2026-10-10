@@ -3,7 +3,7 @@
 import { parseMoney } from "./money.js";
 
 export function parseBill(text){
-  const items = [];
+  const items = [], meta = [];
   let total = null, subtotal = null, service = null;
 
   String(text || "").split(/\r?\n/).forEach(line => {
@@ -28,9 +28,33 @@ export function parseBill(text){
     const q = rest.match(/^(\d{1,3})\s*(x|un|und|unid|pç|pc|\b)\s+/i);
     if(q && parseInt(q[1], 10) > 0){ qty = parseInt(q[1], 10); rest = rest.slice(q[0].length).trim(); }
     rest = rest.replace(/^[xX]\s*/, "").replace(/\s{2,}/g, " ").trim();
+
+    // O valor no fim da linha é o TOTAL da linha (como na conta impressa); unitPrice = total / qty.
+    // Se a linha imprime unitário E total ("2 x 28,00 Caipirinha 56,00"), usa o unitário e tira-o do nome.
+    let unitPrice = val, ambiguous = false;
+    if(qty > 1){
+      const u = rest.match(/(\d{1,3}(?:\.\d{3})*,\d{2}|\d+,\d{2}|\d+\.\d{2})/);
+      const uv = u ? parseMoney(u[1]) : 0;
+      if(uv > 0 && Math.abs(uv * qty - val) <= 0.01){
+        unitPrice = uv;
+        rest = (rest.slice(0, u.index) + " " + rest.slice(u.index + u[0].length)).replace(/\s{2,}/g, " ").trim();
+      } else {
+        unitPrice = Math.round(val / qty * 1e6) / 1e6;   // sem arredondar a 2 casas: qty×unit continua = total da linha ao centavo
+        ambiguous = true;
+      }
+    }
     if(!rest) rest = "item";
-    items.push({ name: rest, qty, unitPrice: val });
+    items.push({ name: rest, qty, unitPrice });
+    meta.push({ val, ambiguous });
   });
+
+  // Se o subtotal impresso só fecha lendo o valor como unitário, usa essa leitura.
+  if(subtotal > 0 && meta.some(m => m.ambiguous)){
+    const sum = f => items.reduce((s, it, i) => s + f(it, i), 0);
+    const asTotal = sum(it => it.qty * it.unitPrice), asUnit = sum((it, i) => it.qty * (meta[i].ambiguous ? meta[i].val : it.unitPrice));
+    if(Math.abs(asTotal - subtotal) > 0.01 && Math.abs(asUnit - subtotal) <= 0.01)
+      items.forEach((it, i) => { if(meta[i].ambiguous) it.unitPrice = meta[i].val; });
+  }
 
   return { items, subtotal, service, total };
 }
