@@ -5,7 +5,7 @@ import { simplifyDebts, directDebts } from "../js/ledger.js";
 import { buildPixPayload, validatePix, crc16 } from "../js/pix.js";
 import { parseBill } from "../js/parse.js";
 import { parseMoney } from "../js/money.js";
-import { normalizeSupabaseUrl } from "../js/db.js";
+import { normalizeSupabaseUrl, normalizeEmail } from "../js/db.js";
 import { createCouple, buildExpense, entryNet, ledgerBalances, coupleSummary, createStore, toRpcPayload, ledgerFromCloud, addMonths, seriesDates, countUntil, expandSeries, dueEntries, parseSeries, encodeSeries } from "../js/model.js";
 
 let pass = 0;
@@ -328,6 +328,14 @@ ok("só o que já venceu entra no saldo; a série sobrevive à ida e volta da nu
   const cloud = ledgerFromCloud({ group: GROUP, members: MEMBERS, myUserId: "uF", settlements: [],
     expenses: [{ ...asRow("e9", row, "2026-10-10T00:00:00Z"), place: row.place }] });
   assert.deepEqual(cloud.entries[0].series, ps[1].series);
+});
+
+ok("normalizeEmail: ponto e +tag no Gmail não criam outra conta", () => {
+  assert.equal(normalizeEmail(" Fabio.Gomes@Gmail.com "), "fabiogomes@gmail.com");
+  assert.equal(normalizeEmail("fabiogomes+racha@gmail.com"), "fabiogomes@gmail.com");
+  assert.equal(normalizeEmail("f.a.b@googlemail.com"), "fab@gmail.com");
+  assert.equal(normalizeEmail("Fabio.Gomes@biof.ufrj.br"), "fabio.gomes@biof.ufrj.br");   // fora do Gmail o ponto conta
+  assert.equal(normalizeEmail("sem-arroba"), "sem-arroba");
 });
 
 console.log(`\n${pass} testes passaram ✓`);

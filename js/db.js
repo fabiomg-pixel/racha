@@ -73,6 +73,15 @@ export async function currentUser(){
 export function onAuthChange(cb){
   return sb().auth.onAuthStateChange((_e, session) => cb(session?.user || null));
 }
+// Um e-mail = uma conta. O Gmail ignora pontos e o que vem depois de "+", então "fabio.gomes@gmail.com" e
+// "fabiogomes@gmail.com" caem na mesma caixa, mas o Supabase criaria duas contas (e dois casais). Normaliza antes.
+export function normalizeEmail(raw){
+  const e = String(raw || "").trim().toLowerCase();
+  const at = e.lastIndexOf("@"); if(at < 1) return e;
+  let local = e.slice(0, at), dom = e.slice(at + 1);
+  if(dom === "gmail.com" || dom === "googlemail.com"){ local = local.split("+")[0].replace(/\./g, ""); dom = "gmail.com"; }
+  return local + "@" + dom;
+}
 export async function sendMagicLink(email){
   // o link de retorno carrega a conexão (igual ao convite) E o alvo do convite (#join) —
   // assim o login fecha em QUALQUER navegador/aba e cai no grupo certo. adoptConfigFromLink() adota no boot.
@@ -85,11 +94,11 @@ export async function sendMagicLink(email){
   if(/^#\/?casal/.test(location.hash)) params.set("to", "casal");                       // logou pela aba Casal? volta pra ela
   const qs = params.toString();
   const redirect = base + (qs ? "?" + qs : "");
-  return unwrap(await sb().auth.signInWithOtp({ email: email.trim(), options: { emailRedirectTo: redirect } }));
+  return unwrap(await sb().auth.signInWithOtp({ email: normalizeEmail(email), options: { emailRedirectTo: redirect } }));
 }
 // alternativa à prova de PWA: o usuário digita o código de 6 dígitos que veio no e-mail
 export async function verifyCode(email, token){
-  return unwrap(await sb().auth.verifyOtp({ email: email.trim(), token: String(token).trim(), type: "email" }));
+  return unwrap(await sb().auth.verifyOtp({ email: normalizeEmail(email), token: String(token).trim(), type: "email" }));
 }
 export async function signOut(){ await sb().auth.signOut(); }
 

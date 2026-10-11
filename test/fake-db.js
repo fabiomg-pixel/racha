@@ -13,6 +13,7 @@ const check = p => {
   if(Math.abs(sum(p.shares) - Math.round(p.total * 100)) > 1) throw new Error("rateio não soma o total");
 };
 export const normalizeSupabaseUrl = u => u;
+export const normalizeEmail = e => e;
 export const getSbConfig = () => ({ url: "https://fake.supabase.co", anon: "x" });
 export const setSbConfig = () => {};
 export const hasConfig = () => true;

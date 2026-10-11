@@ -1157,7 +1157,7 @@ function renderLogin(where){
     if(!(await ensureInit())){ $("#loginMsg").textContent = INIT_ERR || "Não consegui conectar ao Supabase."; $("#loginBtn").disabled = false; return; }
     try{
       await db.sendMagicLink(email); sentEmail = email;
-      $("#loginMsg").innerHTML = `Enviado pra <b>${esc(email)}</b>. Abra o e-mail e toque em <b>Sign in</b>. Pode ser em qualquer navegador ou aparelho. Confira também o spam.
+      $("#loginMsg").innerHTML = `Enviado pra <b>${esc(db.normalizeEmail(email))}</b>. Abra o e-mail e toque em <b>Sign in</b>. Pode ser em qualquer navegador ou aparelho. Confira também o spam.
         <br><a class="link" id="showCode">O e-mail trouxe um código de 6 dígitos?</a>`;
       $("#showCode").onclick = () => { $("#codeBox").style.display = "block"; $("#showCode").remove(); };
     }catch(e){ console.error(e); $("#loginMsg").textContent = authError(e); }
