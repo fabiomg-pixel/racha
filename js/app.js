@@ -82,6 +82,21 @@ async function guard(fn, msg){ try{ return await fn(); }catch(e){ console.error(
 let ME = null, PROFILE = null, INIT_ERR = null, LIVE = null;
 let ITEM_SINK = null;   // pra onde foto/texto mandam os itens lidos (definido por cada aba)
 
+// Atualização das telas compartilhadas. O tempo real do Supabase é o caminho rápido, mas ele se perde
+// (celular bloqueado, app em segundo plano, rede que caiu). Então a tela também se confere sozinha:
+// ao voltar pro app, ao reconectar e a cada poucos segundos enquanto está aberta. REFRESH é definido pela tela atual.
+let REFRESH = null, refreshBusy = false;
+async function softRefresh(){
+  if(!REFRESH || refreshBusy || document.hidden || !navigator.onLine || document.querySelector("dialog[open]")) return;
+  refreshBusy = true;
+  try{ await REFRESH(); }catch(e){ console.warn("refresh", e); }finally{ refreshBusy = false; }
+}
+document.addEventListener("visibilitychange", softRefresh);
+window.addEventListener("focus", softRefresh);
+window.addEventListener("online", softRefresh);
+window.addEventListener("pageshow", softRefresh);
+setInterval(softRefresh, 10000);
+
 /* ============================ boot ============================ */
 // Convite "pronto pra usar": o link carrega a conexão (URL + chave anon pública).
 // Quem abre adota a config automaticamente e só precisa fazer login — nada de ⚙.
@@ -176,7 +191,7 @@ function route(){
   $("#tabCasal").classList.toggle("on", tab === "casal");
   $("#tabGrupos").classList.toggle("on", tab === "grupos");
   paintShell(tab);
-  ITEM_SINK = null;
+  ITEM_SINK = null; REFRESH = null;
   if(LIVE){ db.unsubscribe(LIVE); LIVE = null; }   // encerra o realtime da tela anterior
   if(tab === "racha") return renderRacha();
   if(tab === "casal") return routeCasal();
@@ -404,7 +419,9 @@ async function pushCalcToGroup(groupId, payerPersonId, description, r){
 // Mora no Supabase como um grupo de 2 (kind="couple"): igual em qualquer aparelho, e os dois veem e lançam.
 // ledgerFromCloud() devolve o mesmo formato de livro-razão do model.js, então as telas não sabem de onde o dado veio.
 // Visual (direção C, "campo de cor"): o saldo num bloco verde; o conteúdo sobe numa folha branca.
-let COUPLE = null, COUPLE_SEQ = 0;
+let COUPLE = null, COUPLE_SEQ = 0, CASAL_CAT = null;   // CASAL_CAT: categoria filtrada no histórico (null = tudo)
+const coupleSig = c => (c ? JSON.stringify([c.name, c.people, c.entries]) : "");
+const MONTHS_FULL = ["Janeiro", "Fevereiro", "Março", "Abril", "Maio", "Junho", "Julho", "Agosto", "Setembro", "Outubro", "Novembro", "Dezembro"];
 const LOCAL = createStore();                       // histórico antigo, de quando o casal morava só neste aparelho
 function localCouple(){ try{ return LOCAL.list().find(l => l.kind === "couple") || null; }catch(_){ return null; } }
 function getCouple(){ return COUPLE; }
@@ -472,7 +489,36 @@ function renderCasal(){
     ? `<div class="hero-actions"><button class="hb solid" id="cpSettle">Acertar</button><button class="hb line" id="cpNudge">Cobrar</button></div>`
     : `<div class="hero-actions"><button class="hb solid" id="cpSettle">Pagar ${you}</button></div>`;
   const entries = c.entries.slice().reverse().sort((a, b) => String(b.spentAt || "").localeCompare(String(a.spentAt || "")));   // mais recente primeiro
-  const rows = entries.map(e => {
+  // detalhamento: filtro por categoria + resumo do que está na tela + total por mês
+  const expAll = entries.filter(e => e.type === "expense");
+  const cats = [...new Set(expAll.map(e => e.category || ""))];
+  if(CASAL_CAT !== null && !cats.includes(CASAL_CAT)) CASAL_CAT = null;
+  const shown = CASAL_CAT === null ? entries : expAll.filter(e => (e.category || "") === CASAL_CAT);
+  const shownExp = shown.filter(e => e.type === "expense");
+  const part = (list, id) => round2(list.reduce((t, e) => t + ((e.shares || []).find(x => x.id === id)?.amount || 0), 0));
+  const paid = (list, id) => round2(list.reduce((t, e) => t + ((e.payers || []).find(x => x.id === id)?.amount || 0), 0));
+  const spent = list => round2(list.reduce((t, e) => t + (Number(e.total) || 0), 0));
+  const catName = k => k ? esc(catLabel(k)) : "Sem categoria";
+  const chips = cats.length > 1 ? `<div class="chips">
+      <button class="chip ${CASAL_CAT === null ? "on" : ""}" data-cat="*">Tudo</button>
+      ${cats.map(k => `<button class="chip ${CASAL_CAT === k ? "on" : ""}" data-cat="${encodeURIComponent(k)}">${icon(catIcon(k), 16)}${catName(k)}</button>`).join("")}
+    </div>` : "";
+  const summary = shownExp.length ? `<div class="sumbox">
+      <div class="between"><span class="b">${CASAL_CAT === null ? "Tudo que vocês gastaram" : catName(CASAL_CAT)}</span><span class="b num">${brlNB(spent(shownExp))}</span></div>
+      <div class="sumgrid num">
+        <span class="mut">Sua parte</span><span>${brlNB(part(shownExp, me.id))}</span><span class="mut">Você pagou</span><span>${brlNB(paid(shownExp, me.id))}</span>
+        <span class="mut">Parte de ${you}</span><span>${brlNB(part(shownExp, other.id))}</span><span class="mut">${you} pagou</span><span>${brlNB(paid(shownExp, other.id))}</span>
+      </div>
+    </div>` : "";
+  let lastMonth = null;
+  const monthHead = e => {
+    const k = String(e.spentAt || "").slice(0, 7); if(k === lastMonth) return ""; lastMonth = k;
+    const m = /^(\d{4})-(\d{2})/.exec(k); if(!m) return "";
+    const tot = spent(shownExp.filter(x => String(x.spentAt || "").slice(0, 7) === k));
+    return `<div class="mhead"><span>${MONTHS_FULL[+m[2] - 1]} de ${m[1]}</span><span class="num">${tot ? brlNB(tot) : ""}</span></div>`;
+  };
+  const rows = shown.map(e => monthHead(e) + rowOf(e)).join("");
+  function rowOf(e){
     const n = entryNet(e)[me.id] || 0;                          // efeito no MEU saldo
     if(e.type === "settlement"){
       const title = e.from === me.id ? `Você pagou ${you}` : `${you} te pagou`;
@@ -484,9 +530,9 @@ function renderCasal(){
     const payer = (e.payers || []).length > 1 ? "vocês dois pagaram" : (e.payers?.[0]?.id === me.id ? "você pagou" : `${you} pagou`);
     return `<div class="erow" data-entry="${e.id}" role="button" tabindex="0">
       <div class="ico ${tone(n)}">${icon(catIcon(e.category))}</div>
-      <div class="grow" style="min-width:0"><div class="t">${esc(e.description || "Despesa")}</div><div class="s num">${fmtShort(e.spentAt)} · ${payer} ${brlNB(e.total)}</div></div>
+      <div class="grow" style="min-width:0"><div class="t">${esc(e.description || "Despesa")}</div><div class="s num">${fmtShort(e.spentAt)} · ${brlNB(e.total)} · ${payer}</div></div>
       <div class="v num ${tone(n)}">${signed(n)}</div></div>`;
-  }).join("");
+  }
   const count = c.entries.length;
   app.innerHTML = `
     <section class="hero"><div class="wrapc">
@@ -501,6 +547,7 @@ function renderCasal(){
     <section class="sheet"><div class="wrapc">
       <div class="sheet-head"><h2 style="margin:0">Histórico</h2><span class="sm mut">${count ? `${count} ${count === 1 ? "lançamento" : "lançamentos"}` : ""}</span></div>
       ${invite}
+      ${chips}${summary}
       ${rows || `<div class="empty">Nenhum lançamento ainda.<br>Toque no <b>+</b> pra lançar a primeira despesa — ou rache uma conta na aba <b>Racha</b> e guarde a parte de vocês.</div>`}
     </div></section>
     <button class="fab-plus" id="cpNew" aria-label="nova despesa">${icon("plus", 26, 2.2)}</button>`;
@@ -508,14 +555,14 @@ function renderCasal(){
   $("#cpCfg").onclick = openCfg;
   $("#cpNew").onclick = () => go("casal/new");
   if($("#cpCopy")) $("#cpCopy").onclick = () => copy(link);
-  if(!LIVE) LIVE = db.subscribeGroup(c.id, () => {            // o outro lançou? atualiza sozinho
-    clearTimeout(liveTimer);
-    liveTimer = setTimeout(async () => {
-      if(activeTab() !== "casal") return;
-      try{ await loadCouple(); }catch(_){ return; }
-      if(parseHash().parts.length === 1 && !document.querySelector("dialog[open]")) renderCasal();
-    }, 500);
-  });
+  app.querySelectorAll("[data-cat]").forEach(b => b.onclick = () => { CASAL_CAT = b.dataset.cat === "*" ? null : decodeURIComponent(b.dataset.cat); renderCasal(); });
+  // confere a nuvem e só redesenha se algo mudou (não pisca nem perde a rolagem à toa)
+  REFRESH = async () => {
+    const before = coupleSig(COUPLE);
+    await loadCouple();
+    if(activeTab() === "casal" && parseHash().parts.length === 1 && coupleSig(COUPLE) !== before) renderCasal();
+  };
+  if(!LIVE) LIVE = db.subscribeGroup(c.id, () => { clearTimeout(liveTimer); liveTimer = setTimeout(softRefresh, 400); });   // caminho rápido
   if($("#cpSettle")) $("#cpSettle").onclick = coupleSettleDialog;
   if($("#cpNudge")) $("#cpNudge").onclick = () => {
     let msg = `Oi! Só lembrando do nosso racha: você está com *${brl(mine)}* pra me acertar 🙂`;
@@ -1033,9 +1080,8 @@ async function renderGroups(){
 }
 
 let liveTimer = null;
-async function renderGroup(groupId){
-  if(LIVE){ db.unsubscribe(LIVE); LIVE = null; }   // evita canal duplicado em re-render ao vivo
-  loading("Abrindo o grupo…");
+async function renderGroup(groupId, silent){
+  if(!silent) loading("Abrindo o grupo…");            // silent = conferência de fundo: troca o conteúdo sem piscar
   let group, members, bal, expenses, activity = [];
   try{
     [members, bal, expenses, activity] = await Promise.all([
@@ -1086,10 +1132,10 @@ async function renderGroup(groupId){
     window.open(`https://wa.me/?text=${encodeURIComponent(msg)}`, "_blank");
   });
   // atualização ao vivo: quando alguém mexe no grupo, recarrega (debounced) se ainda estou nele
-  LIVE = db.subscribeGroup(groupId, () => {
-    clearTimeout(liveTimer);
-    liveTimer = setTimeout(() => { if(location.hash.replace(/^#\/?/, "").startsWith(`g/${groupId}`)) renderGroup(groupId); }, 500);
-  });
+  const here = () => location.hash.replace(/^#\/?/, "") === `g/${groupId}`;
+  if(!here()) return;                                  // saiu da tela enquanto carregava
+  REFRESH = async () => { if(here()) await renderGroup(groupId, true); };
+  if(!LIVE) LIVE = db.subscribeGroup(groupId, () => { clearTimeout(liveTimer); liveTimer = setTimeout(softRefresh, 400); });
 }
 function timeAgo(at){
   const s = (Date.now() - new Date(at).getTime()) / 1000;

@@ -94,6 +94,17 @@
 - [ ] Sem internet: o Casal avisa que não carregou e oferece tentar de novo (a aba Racha continua funcionando).
 - [ ] Na aba **Grupos**, cada grupo aparece **uma vez só** e o casal não aparece na lista (tem a aba dele).
 
+# Atualização entre aparelhos + detalhamento — v30
+- [ ] Com o app aberto nos dois celulares, um lança → o outro mostra em até ~10 s, sem tocar em nada.
+- [ ] Bloquear a tela (ou trocar de app) num deles, lançar no outro, voltar → atualiza ao voltar.
+- [ ] Editar o rateio de uma despesa num aparelho → o valor muda no outro.
+- [ ] Quando a outra pessoa entra pelo convite, o cartão "ainda não entrou" some sozinho.
+- [ ] Histórico separado por **mês**, com o total gasto no mês.
+- [ ] Com 2+ categorias aparecem as fichas (Tudo · Mercado · Comida…); tocar filtra a lista.
+- [ ] O quadro de resumo mostra total, a parte de cada um e quanto cada um pagou; muda com o filtro.
+- [ ] Tocar numa linha abre o detalhe (itens, quanto é de cada um, efeito no saldo).
+- [ ] (opcional) rodar `supabase/migrations/0005_realtime.sql` pra o aviso em tempo real ficar mais confiável.
+
 # (histórico) Aba Casal local — v25
 
 ## 15. Configurar o casal
