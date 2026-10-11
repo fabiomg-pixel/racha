@@ -12,10 +12,60 @@ export function uid(){
   return "id-" + Math.random().toString(36).slice(2) + Date.now().toString(36);
 }
 
+// data LOCAL (não UTC): às 21h no Brasil o UTC já virou o dia, e a despesa de hoje sairia com a data de amanhã
 export function todayISO(d){
   const t = d ? new Date(d) : new Date();
-  return t.toISOString().slice(0, 10);
+  return t.getFullYear() + "-" + String(t.getMonth() + 1).padStart(2, "0") + "-" + String(t.getDate()).padStart(2, "0");
 }
+
+// ── Séries: parcelado e recorrente ───────────────────────────────────────────
+// Uma série são N despesas comuns, uma por data, ligadas por um id. Só a que já venceu entra no saldo (dueEntries).
+const ymd = t => t.toISOString().slice(0, 10);
+export function addMonths(iso, k){
+  const [y, m, d] = String(iso).split("-").map(Number);
+  const t = new Date(Date.UTC(y, m - 1 + k, 1));
+  const last = new Date(Date.UTC(t.getUTCFullYear(), t.getUTCMonth() + 1, 0)).getUTCDate();   // dia 31 em mês de 30 → dia 30
+  t.setUTCDate(Math.min(d, last));
+  return ymd(t);
+}
+export function addDays(iso, k){ const [y, m, d] = String(iso).split("-").map(Number); return ymd(new Date(Date.UTC(y, m - 1, d + k))); }
+const stepDate = (start, freq, i) => freq === "week" ? addDays(start, 7 * i) : freq === "year" ? addMonths(start, 12 * i) : addMonths(start, i);
+export function seriesDates(start, freq, count){ return Array.from({ length: count }, (_, i) => stepDate(start, freq, i)); }
+// quantas ocorrências cabem de `start` até `until` (inclusive)
+export function countUntil(start, freq, until, max = 120){ let n = 0; while(n < max && stepDate(start, freq, n) <= until) n++; return n; }
+
+// a ligação da série viaja no campo `place` da despesa (livre no casal), pra não exigir migração no banco
+export const encodeSeries = s => (s ? ["série", s.id, s.n, s.of || 0, s.kind, s.freq, s.start || ""].join("|") : null);
+export function parseSeries(place){
+  const p = String(place || "").split("|");
+  if(p[0] !== "série" || !p[1]) return null;
+  return { id: p[1], n: Number(p[2]) || 1, of: Number(p[3]) || 0, kind: p[4] === "parcel" ? "parcel" : "repeat", freq: p[5] || "month", start: p[6] || "" };   // of = 0 → sem fim definido
+}
+// plan: { kind:'parcel'|'repeat', count, freq:'month'|'week'|'year', valueIs:'total'|'each', open, from?, id? }
+// parcel + valueIs 'total': o valor da despesa é o TOTAL da compra, rateado nas parcelas (centavos reconciliados).
+// nos outros casos cada ocorrência repete a despesa inteira. `from` continua uma série aberta (renovação).
+export function expandSeries(atom, plan){
+  const count = Math.max(1, Math.floor(plan.count)), freq = plan.freq || "month", from = plan.from || 0;
+  const sid = plan.id || uid(), start = plan.start || atom.spentAt;
+  const split = plan.kind === "parcel" && plan.valueIs !== "each";
+  const totals = split ? allocateByWeights(atom.total, Object.fromEntries(Array.from({ length: count }, (_, i) => ["k" + i, 1]))) : null;
+  const base = String(atom.description || "Despesa").replace(/\s*\(\d+\/\d+\)$/, "");
+  const weights = arr => Object.fromEntries((arr || []).map(x => [x.id, x.amount]));
+  return Array.from({ length: count }, (_, i) => {
+    const n = from + i + 1;
+    const series = { id: sid, n, of: plan.open ? 0 : from + count, kind: plan.kind, freq, start };
+    const common = { id: uid(), spentAt: stepDate(start, freq, from + i), series,
+      description: plan.kind === "parcel" ? `${base} (${n}/${from + count})` : base };
+    if(!split) return { ...atom, ...common };
+    const t = totals["k" + i];
+    const { items, opts, ...rest } = atom;                    // parcela não carrega os itens: cada uma é uma fração do todo
+    return { ...rest, ...common, method: "exact", total: t,
+      shares: fromMap(allocateByWeights(t, weights(atom.shares))).filter(x => x.amount !== 0),
+      payers: fromMap(allocateByWeights(t, weights(atom.payers))).filter(x => x.amount !== 0) };
+  });
+}
+// o que já venceu (data ≤ hoje). O saldo, o acerto e os resumos olham só pra isso.
+export function dueEntries(entries, today = todayISO()){ return (entries || []).filter(e => String(e.spentAt || "") <= today); }
 
 // [{id,amount}] <-> {id:amount}
 const toMap   = arr => { const m = {}; (arr || []).forEach(x => { m[x.id] = (m[x.id] || 0) + Number(x.amount || 0); }); return m; };
@@ -219,7 +269,7 @@ export function toRpcPayload(groupId, entry, memberMap = {}){
     description: entry.description,
     category: entry.category,
     note: entry.note,
-    place: null,
+    place: encodeSeries(entry.series),
     spent_at: entry.spentAt,
     subtotal, service_rate: rate, service_amount: round2(subtotal * rate),
     couvert: items.length ? round2(entry.opts?.couvert) : 0,
@@ -253,6 +303,7 @@ export function ledgerFromCloud({ group, members = [], expenses = [], settlement
       id: e.id, type: "expense", description: e.description || "Despesa", category: e.category || null, note: e.note || null,
       spentAt: e.spent_at, createdAt: e.created_at, method: items.length ? "item" : even ? "equal" : "exact",
       total: round2(e.total), participants: shares.map(x => x.id), shares, payers,
+      ...(parseSeries(e.place) ? { series: parseSeries(e.place) } : {}),
       ...(items.length ? { items, opts: { serviceRate: Number(e.service_rate) || 0, couvert: Number(e.couvert) || 0, discount: Number(e.discount) || 0 } } : {}),
     };
   });

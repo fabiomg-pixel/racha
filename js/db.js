@@ -172,7 +172,7 @@ export async function getExpense(id){
 // livro-razão inteiro do grupo numa consulta (sem a foto do recibo, que é pesada) — alimenta ledgerFromCloud()
 export async function ledgerExpenses(groupId){
   return unwrap(await sb().from("expenses")
-    .select("id,description,category,note,spent_at,subtotal,service_rate,couvert,discount,total,created_at,items:expense_items(name,qty,unit_price,position,shares:item_shares(member_id,weight)),payers:expense_payers(member_id,amount),shares:expense_shares(member_id,amount)")
+    .select("id,description,category,note,place,spent_at,subtotal,service_rate,couvert,discount,total,created_at,items:expense_items(name,qty,unit_price,position,shares:item_shares(member_id,weight)),payers:expense_payers(member_id,amount),shares:expense_shares(member_id,amount)")
     .eq("group_id", groupId).order("created_at"));
 }
 // payload já com shares calculados (split.js) — RPC insere tudo numa transação

@@ -10,12 +10,11 @@ import { simplifyDebts, netFromRows } from "./ledger.js";
 import { buildPixPayload } from "./pix.js";
 import { parseBill } from "./parse.js";
 import { parseMoney, brl } from "./money.js";
-import { buildExpense, entryNet, ledgerBalances, coupleSummary, createStore, removeEntry, toRpcPayload, ledgerFromCloud } from "./model.js";
+import { buildExpense, entryNet, ledgerBalances, coupleSummary, createStore, removeEntry, toRpcPayload, ledgerFromCloud, expandSeries, dueEntries, countUntil, addDays, todayISO } from "./model.js";
 
 const $ = s => document.querySelector(s);
 const app = $("#app");
 const esc = s => String(s ?? "").replace(/[&<>"']/g, c => ({ "&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;" }[c]));
-const todayISO = () => new Date().toISOString().slice(0, 10);
 const fmtDate = iso => { try{ return new Date(iso + "T12:00").toLocaleDateString("pt-BR", { day:"2-digit", month:"short" }); }catch(_){ return iso; } };
 const round2 = n => Math.round((Number(n)||0) * 100) / 100;
 const norm = s => String(s||"").trim().toLowerCase();
@@ -420,6 +419,10 @@ async function pushCalcToGroup(groupId, payerPersonId, description, r){
 // ledgerFromCloud() devolve o mesmo formato de livro-razão do model.js, então as telas não sabem de onde o dado veio.
 // Visual (direção C, "campo de cor"): o saldo num bloco verde; o conteúdo sobe numa folha branca.
 let COUPLE = null, COUPLE_SEQ = 0, CASAL_CAT = null;   // CASAL_CAT: categoria filtrada no histórico (null = tudo)
+let CASAL_FUT = false;                              // seção "Programado" aberta?
+const dueLedger = c => ({ ...c, entries: dueEntries(c.entries, todayISO()) });   // só o que já venceu conta no saldo
+const fmtWhen = iso => fmtShort(iso) + (String(iso || "").slice(0, 4) === todayISO().slice(0, 4) ? "" : " " + String(iso || "").slice(0, 4));
+const FREQ = { month: "todo mês", week: "toda semana", year: "todo ano" };
 const coupleSig = c => (c ? JSON.stringify([c.name, c.people, c.entries]) : "");
 const MONTHS_FULL = ["Janeiro", "Fevereiro", "Março", "Abril", "Maio", "Junho", "Julho", "Agosto", "Setembro", "Outubro", "Novembro", "Dezembro"];
 const LOCAL = createStore();                       // histórico antigo, de quando o casal morava só neste aparelho
@@ -507,7 +510,7 @@ function renderCasal(){
   const c = getCouple();
   if(!c || c.people.length < 2) return renderCoupleSetup(c);
   const me = meOf(c), other = otherOf(c), you = esc(firstName(other.name));
-  const mine = round2(ledgerBalances(c)[me.id] || 0);          // >0: me devem · <0: eu devo
+  const mine = round2(ledgerBalances(dueLedger(c))[me.id] || 0);   // >0: me devem · <0: eu devo (só o que já venceu)
   const link = inviteLink(c.id);
   const invite = other.userId ? "" : `<div class="preview" style="margin-bottom:16px">
       <div class="effect">${you} ainda não entrou</div>
@@ -526,7 +529,10 @@ function renderCasal(){
   const actions = quite ? "" : mine > 0
     ? `<div class="hero-actions"><button class="hb solid" id="cpSettle">Acertar</button><button class="hb line" id="cpNudge">Cobrar</button></div>`
     : `<div class="hero-actions"><button class="hb solid" id="cpSettle">Pagar ${you}</button></div>`;
-  const entries = c.entries.slice().reverse().sort((a, b) => String(b.spentAt || "").localeCompare(String(a.spentAt || "")));   // mais recente primeiro
+  const today = todayISO();
+  const sorted = c.entries.slice().reverse().sort((a, b) => String(b.spentAt || "").localeCompare(String(a.spentAt || "")));   // mais recente primeiro
+  const entries = sorted.filter(e => String(e.spentAt || "") <= today);            // histórico = o que já venceu
+  const future = sorted.filter(e => String(e.spentAt || "") > today).reverse();    // programado, a próxima primeiro
   // detalhamento: filtro por categoria + resumo do que está na tela + total por mês
   const expAll = entries.filter(e => e.type === "expense");
   const cats = [...new Set(expAll.map(e => e.category || ""))];
@@ -568,10 +574,22 @@ function renderCasal(){
     const payer = (e.payers || []).length > 1 ? "vocês dois pagaram" : (e.payers?.[0]?.id === me.id ? "você pagou" : `${you} pagou`);
     return `<div class="erow" data-entry="${e.id}" role="button" tabindex="0">
       <div class="ico ${tone(n)}">${icon(catIcon(e.category))}</div>
-      <div class="grow" style="min-width:0"><div class="t">${esc(e.description || "Despesa")}</div><div class="s num">${fmtShort(e.spentAt)} · ${brlNB(e.total)} · ${payer}</div></div>
+      <div class="grow" style="min-width:0"><div class="t">${esc(e.description || "Despesa")}</div><div class="s num">${fmtWhen(e.spentAt)} · ${brlNB(e.total)} · ${payer}${e.series?.kind === "repeat" ? " · " + FREQ[e.series.freq] : ""}</div></div>
       <div class="v num ${tone(n)}">${signed(n)}</div></div>`;
   }
-  const count = c.entries.length;
+  const count = entries.length;
+  const futCard = future.length ? `<div class="sumbox" style="padding:0">
+      <button class="futhead" id="cpFut"><span><span class="b">Programado</span> <span class="sm mut num">· ${future.length} ${future.length === 1 ? "lançamento" : "lançamentos"} · ${brlNB(spent(future))}</span></span><span class="sm" style="color:var(--accent);font-weight:700">${CASAL_FUT ? "ocultar" : "ver"}</span></button>
+      ${CASAL_FUT ? `<div style="padding:0 16px 4px"><div class="sm mut" style="margin-bottom:2px">Ainda não entram no saldo. Cada um entra na sua data.</div>${future.map(rowOf).join("")}</div>` : ""}
+    </div>` : "";
+  // série sem data pra acabar: programo 12 por vez e aviso quando a última estiver chegando
+  const lastOpen = {};
+  c.entries.forEach(e => { if(e.series && (!lastOpen[e.series.id] || e.series.n > lastOpen[e.series.id].series.n)) lastOpen[e.series.id] = e; });
+  const renew = Object.values(lastOpen).filter(e => e.series.of === 0 && String(e.spentAt) <= addDays(today, 45));
+  const renewCard = renew.map(e => `<div class="preview" style="margin-bottom:16px">
+      <div class="effect">${esc(e.description)} está programado só até ${fmtWhen(e.spentAt)}</div>
+      <div class="row" style="margin-top:10px"><button class="btn sm grow" data-renew="${e.id}">Programar mais 12</button><button class="btn sec sm" data-endser="${e.id}">Encerrar</button></div>
+    </div>`).join("");
   app.innerHTML = `
     <section class="hero"><div class="wrapc">
       <div class="hero-top">
@@ -584,7 +602,7 @@ function renderCasal(){
     </div></section>
     <section class="sheet"><div class="wrapc">
       <div class="sheet-head"><h2 style="margin:0">Histórico</h2><span class="sm mut">${count ? `${count} ${count === 1 ? "lançamento" : "lançamentos"}` : ""}</span></div>
-      ${invite}${dupCard}
+      ${invite}${dupCard}${renewCard}${futCard}
       ${chips}${summary}
       ${rows || `<div class="empty">Nenhum lançamento ainda.<br>Toque no <b>+</b> pra lançar a primeira despesa — ou rache uma conta na aba <b>Racha</b> e guarde a parte de vocês.</div>`}
     </div></section>
@@ -593,6 +611,23 @@ function renderCasal(){
   $("#cpCfg").onclick = openCfg;
   $("#cpNew").onclick = () => go("casal/new");
   if($("#cpCopy")) $("#cpCopy").onclick = () => copy(link);
+  if($("#cpFut")) $("#cpFut").onclick = () => { CASAL_FUT = !CASAL_FUT; renderCasal(); };
+  app.querySelectorAll("[data-renew]").forEach(b => b.onclick = async () => {
+    const last = c.entries.find(x => x.id === b.dataset.renew); if(!last) return;
+    if(!last.series.start){ toast("Não consegui continuar esta série. Lance de novo como recorrente."); return; }
+    b.disabled = true;
+    try{
+      const more = expandSeries(last, { kind: "repeat", count: 12, freq: last.series.freq, open: true, from: last.series.n, id: last.series.id, start: last.series.start });
+      for(let i = 0; i < more.length; i++){ b.textContent = `Programando ${i + 1}/12…`; await db.saveExpense(toRpcPayload(c.id, more[i])); }
+      await afterCoupleWrite("Mais 12 programados ✓");
+    }catch(e){ console.error(e); toast(e?.message || "Não consegui programar", 5000); try{ await loadCouple(); }catch(_){} renderCasal(); }
+  });
+  app.querySelectorAll("[data-endser]").forEach(b => b.onclick = async () => {
+    const last = c.entries.find(x => x.id === b.dataset.endser); if(!last) return;
+    if(!confirm(`Encerrar "${last.description}" em ${fmtWhen(last.spentAt)}? Os lançamentos já feitos continuam.`)) return;
+    try{ await db.updateExpense({ ...toRpcPayload(c.id, { ...last, series: { ...last.series, of: last.series.n } }), id: last.id }); await afterCoupleWrite("Encerrado ✓"); }
+    catch(e){ console.error(e); toast(e?.message || "Não consegui encerrar", 5000); }
+  });
   if($("#cpMerge")) $("#cpMerge").onclick = async () => {
     const btn = $("#cpMerge"); btn.disabled = true; btn.textContent = "Juntando…";
     try{ const n = await mergeStrayGhosts(await loadCouple()); await loadCouple(); toast(`Pronto ✓ ${n} ${n === 1 ? "lançamento corrigido" : "lançamentos corrigidos"}`, 4000); renderCasal(); }
@@ -703,7 +738,8 @@ let CDRAFT = null;
 function renderCoupleExpense(editId){
   const c = getCouple(); if(!c) return renderCoupleSetup(null);
   const me = meOf(c);
-  const d = CDRAFT = { editId: null, description: "", category: "", spentAt: todayISO(), payer: me.id, mode: "equal", total: 0, exact: {}, items: [], serviceOn: false, serviceRate: 0.10, couvert: 0, discount: 0, billTotal: null, focusValue: true };
+  const d = CDRAFT = { editId: null, description: "", category: "", spentAt: todayISO(), payer: me.id, mode: "equal", total: 0, exact: {}, items: [], serviceOn: false, serviceRate: 0.10, couvert: 0, discount: 0, billTotal: null, focusValue: true,
+    rep: "one", repN: 12, repValue: "total", repFreq: "month", repTimes: "", repUntil: "" };   // rep: uma vez · parcelado · recorrente
   if(editId){
     const e = c.entries.find(x => x.id === editId && x.type === "expense");
     if(!e){ toast("Despesa não encontrada"); return go("casal"); }
@@ -797,6 +833,21 @@ function paintCoupleExpense(){
         <div class="seg c3" style="margin-top:9px">${modeBtn("mine", "Só eu")}${modeBtn("theirs", "Só " + you)}${modeBtn("exact", "Valores")}</div>
       </div>
       ${panel ? `<div class="stack" style="gap:10px">${panel}</div>` : ""}
+      ${d.editId ? "" : `<div><div class="flabel">Repetir</div>
+        <div class="seg c3">${[["one", "Uma vez"], ["parcel", "Parcelado"], ["repeat", "Recorrente"]].map(([v, l]) => `<button class="opt ${d.rep === v ? "on" : ""}" data-rep="${v}">${l}</button>`).join("")}</div>
+        ${d.rep === "parcel" ? `<div class="stack" style="gap:9px;margin-top:9px">
+          <label class="tile"><span>Parcelas</span><input id="ceRepN" type="text" inputmode="numeric" value="${d.repN}" style="text-align:right" aria-label="número de parcelas"><span style="width:auto">vezes</span></label>
+          <div class="seg c2">${[["total", "O valor é o total"], ["each", "O valor é de cada parcela"]].map(([v, l]) => `<button class="opt ${d.repValue === v ? "on" : ""}" data-repval="${v}">${l}</button>`).join("")}</div>
+        </div>` : ""}
+        ${d.rep === "repeat" ? `<div class="stack" style="gap:9px;margin-top:9px">
+          <div class="seg c3">${[["month", "Todo mês"], ["week", "Toda semana"], ["year", "Todo ano"]].map(([v, l]) => `<button class="opt ${d.repFreq === v ? "on" : ""}" data-repfreq="${v}">${l}</button>`).join("")}</div>
+          <div class="seg c2">
+            <label class="tile tight"><span>Vezes</span><input id="ceRepTimes" type="text" inputmode="numeric" value="${esc(d.repTimes)}" placeholder="sem limite" style="text-align:right"></label>
+            <label class="tile tight"><span>Até</span><input id="ceRepUntil" type="date" value="${esc(d.repUntil)}" aria-label="repetir até"></label>
+          </div>
+          <div class="sm mut">Vezes e data final são opcionais. A primeira é na data da despesa.</div>
+        </div>` : ""}
+      </div>`}
       <div><div id="ceCheck"></div><div id="cePreview"></div></div>
       <div class="stack" style="gap:9px">
         <label class="tile"><span>Descrição</span><input id="ceDesc" value="${esc(d.description)}" placeholder="ex.: Mercado, Jantar, Uber"></label>
@@ -808,10 +859,16 @@ function paintCoupleExpense(){
     </div></section>
     <div class="savebar"><button class="btn" id="ceSave">${d.editId ? "Salvar alterações" : "Salvar despesa"}</button></div>`;
   $("#ceBack").onclick = () => go("casal");
+  app.querySelectorAll("[data-rep]").forEach(el => el.onclick = () => { d.rep = el.dataset.rep; paintCoupleExpense(); });
+  app.querySelectorAll("[data-repval]").forEach(el => el.onclick = () => { d.repValue = el.dataset.repval; paintCoupleExpense(); });
+  app.querySelectorAll("[data-repfreq]").forEach(el => el.onclick = () => { d.repFreq = el.dataset.repfreq; paintCoupleExpense(); });
+  if($("#ceRepN")) $("#ceRepN").oninput = e => { d.repN = e.target.value; refreshCouplePreview(); };
+  if($("#ceRepTimes")) $("#ceRepTimes").oninput = e => { d.repTimes = e.target.value; refreshCouplePreview(); };
+  if($("#ceRepUntil")) $("#ceRepUntil").oninput = e => { d.repUntil = e.target.value; refreshCouplePreview(); };
   $("#ceSave").onclick = saveCoupleExpense;
   $("#ceDesc").oninput = e => d.description = e.target.value;
   $("#ceCat").onchange = e => { d.category = e.target.value; $("#ceCatIcon").innerHTML = icon(catIcon(d.category), 18); };
-  $("#ceDate").oninput = e => d.spentAt = e.target.value;
+  $("#ceDate").oninput = e => { d.spentAt = e.target.value; refreshCouplePreview(); };
   app.querySelectorAll("[data-payer]").forEach(el => el.onclick = () => { d.payer = el.dataset.payer; paintCoupleExpense(); });
   app.querySelectorAll("[data-mode]").forEach(el => el.onclick = () => switchCoupleMode(el.dataset.mode));
   if($("#ceTotal")){
@@ -837,6 +894,21 @@ function paintCoupleExpense(){
   }
   refreshCouplePreview();
 }
+// do rascunho pro plano da série (null = uma vez só). Limites: 2–60 parcelas; até 120 repetições.
+function repPlan(d){
+  if(d.editId || d.rep === "one") return null;
+  if(d.rep === "parcel"){
+    const n = Math.floor(Number(String(d.repN).replace(/\D/g, "")) || 0);
+    return n >= 2 ? { kind: "parcel", count: Math.min(n, 60), freq: "month", valueIs: d.repValue } : null;
+  }
+  const times = Math.floor(Number(String(d.repTimes).replace(/\D/g, "")) || 0);
+  const byDate = d.repUntil ? countUntil(d.spentAt, d.repFreq, d.repUntil) : 0;
+  if(d.repUntil && byDate < 1) return { kind: "repeat", count: 1, freq: d.repFreq, bad: "A data final é antes da primeira." };
+  if(times && byDate) return { kind: "repeat", count: Math.min(times, byDate), freq: d.repFreq };
+  if(times) return { kind: "repeat", count: Math.min(times, 120), freq: d.repFreq };
+  if(byDate) return { kind: "repeat", count: byDate, freq: d.repFreq };
+  return { kind: "repeat", count: 12, freq: d.repFreq, open: true };      // sem limite: 12 por vez, com aviso pra continuar
+}
 // Prévia: mostra o SALDO que fica depois desta despesa — e, entre parênteses, quanto ela mexe.
 // (Antes dizia "passa a te dever" com o delta, o que lia como saldo final e estava errado.)
 function refreshCouplePreview(){
@@ -850,12 +922,21 @@ function refreshCouplePreview(){
     box.innerHTML = `<div class="sm" style="font-weight:600">${d.mode === "item" ? "Adicione itens com valor pra ver a divisão." : d.mode === "exact" ? "Preencha quanto é de cada um." : "Digite o valor pra ver como fica o saldo."}</div>`;
     return;
   }
-  const sh = Object.fromEntries(atom.shares.map(s => [s.id, s.amount]));
-  const base = round2(ledgerBalances(d.editId ? removeEntry(c, d.editId) : c)[me.id] || 0);   // saldo SEM esta despesa
-  const n = round2(entryNet(atom)[me.id] || 0);                                               // quanto esta despesa mexe
+  const plan = repPlan(d), list = plan ? expandSeries(atom, plan) : [atom], first = list[0], lastOne = list[list.length - 1];
+  const counts = String(first.spentAt || "") <= todayISO();                                    // a primeira já vence hoje (ou antes)?
+  const sh = Object.fromEntries(first.shares.map(s => [s.id, s.amount]));
+  const base = round2(ledgerBalances(dueLedger(d.editId ? removeEntry(c, d.editId) : c))[me.id] || 0);   // saldo SEM esta despesa
+  const n = counts ? round2(entryNet(first)[me.id] || 0) : 0;                                  // quanto mexe AGORA
   const after = round2(base + n);
   const delta = ` <span class="delta">(${signed(n)})</span>`;
-  const effect = Math.abs(n) < 0.005 ? "Não muda o saldo entre vocês."
+  const planLine = !plan ? "" : `<div class="rule"></div><div class="sm" style="font-weight:600">${
+    plan.bad ? plan.bad
+    : plan.kind === "parcel" ? `${list.length} parcelas de ${brlNB(first.total)}, de ${fmtWhen(first.spentAt)} a ${fmtWhen(lastOne.spentAt)}. Total ${brlNB(list.reduce((t, x) => t + x.total, 0))}.`
+    : plan.open ? `${brlNB(first.total)} ${FREQ[plan.freq]}, sem data pra acabar. Programo 12 e aviso quando estiver acabando.`
+    : `${brlNB(first.total)} ${FREQ[plan.freq]}, ${list.length} ${list.length === 1 ? "vez" : "vezes"}, até ${fmtWhen(lastOne.spentAt)}.`
+  }${plan.bad ? "" : " Cada uma entra no saldo na sua data."}</div>`;
+  const effect = !counts ? `Entra no saldo em ${fmtWhen(first.spentAt)}.`
+    : Math.abs(n) < 0.005 ? "Não muda o saldo entre vocês."
     : Math.abs(after) < 0.005 ? `Vocês ficam quites${delta}`
     : after > 0 ? `${you} passa a te dever ${brlNB(after)}${delta}`
     : `Você passa a dever ${brlNB(-after)} a ${you}${delta}`;
@@ -865,18 +946,28 @@ function refreshCouplePreview(){
   box.innerHTML = `
     <div class="between num sm" style="font-weight:700"><span>Eu ${brlNB(sh[me.id] || 0)}</span><span>${you} ${brlNB(sh[other.id] || 0)}</span></div>
     <div class="rule"></div>
-    <div class="effect num">${effect}</div>`;
+    <div class="effect num">${effect}</div>${planLine}`;
 }
 async function saveCoupleExpense(){
   const d = CDRAFT, c = getCouple();
   let atom; try{ atom = coupleAtom(d, c); }catch(e){ toast(e?.message || "Não consegui montar a despesa"); return; }
   if(!(atom.total > 0)){ toast(d.mode === "exact" ? "Preencha os valores" : d.mode === "item" ? "Adicione itens com valor" : "Informe o valor"); return; }
+  const plan = repPlan(d);
+  if(d.rep === "parcel" && !plan){ toast("Diga em quantas parcelas (2 ou mais)"); return; }
+  if(plan?.bad){ toast(plan.bad); return; }
+  const list = plan ? expandSeries(atom, plan) : [atom];
+  if(d.editId){ const old = c.entries.find(x => x.id === d.editId); if(old?.series) atom.series = old.series; }   // editar uma parcela não a tira da série
   const btn = $("#ceSave"); btn.disabled = true; btn.textContent = "Salvando…";
+  let done = 0;
   try{
-    const payload = toRpcPayload(c.id, atom);
-    if(d.editId) await db.updateExpense({ ...payload, id: d.editId }); else await db.saveExpense(payload);
-    await afterCoupleWrite(d.editId ? "Despesa atualizada ✓" : "Despesa salva ✓");
-  }catch(e){ console.error(e); toast(e?.message || "Não consegui salvar. Confira a internet.", 5000); btn.disabled = false; btn.textContent = d.editId ? "Salvar alterações" : "Salvar despesa"; }
+    if(d.editId) await db.updateExpense({ ...toRpcPayload(c.id, atom), id: d.editId });
+    else for(const a of list){ if(list.length > 1) btn.textContent = `Salvando ${done + 1}/${list.length}…`; await db.saveExpense(toRpcPayload(c.id, a)); done++; }
+    await afterCoupleWrite(d.editId ? "Despesa atualizada ✓" : list.length > 1 ? `${list.length} lançamentos programados ✓` : "Despesa salva ✓");
+  }catch(e){
+    console.error(e);
+    if(done > 0){ toast(`Salvei ${done} de ${list.length} e a conexão caiu. Confira em Programado antes de lançar de novo.`, 7000); try{ await afterCoupleWrite(); }catch(_){} return; }
+    toast(e?.message || "Não consegui salvar. Confira a internet.", 5000); btn.disabled = false; btn.textContent = d.editId ? "Salvar alterações" : "Salvar despesa";
+  }
 }
 function applyToCouple(parsed){
   if(!parsed.items?.length){ toast("Não achei itens. Tente manual."); return; }
@@ -914,21 +1005,36 @@ function coupleEntryDialog(entryId){
   const dlg = document.createElement("dialog"); document.body.appendChild(dlg);
   dlg.innerHTML = `<div class="dlg-bd">${body}
     <div class="preview${n < -0.004 && e.type !== "settlement" ? " neg" : ""}" style="margin-top:16px;padding:12px 14px"><div class="effect num">${effect}</div></div>
-    <div class="row" style="margin-top:16px"><button class="btn sec grow" id="cdClose">Fechar</button>${e.type === "expense" ? `<button class="btn grow" id="cdEdit">Editar</button>` : ""}<button class="btn danger" id="cdDel">Excluir</button></div>
+    ${e.series ? `<p class="sm mut" style="margin:10px 0 0">${e.series.kind === "parcel" ? `Parcela ${e.series.n} de ${e.series.of}` : `Recorrente, ${FREQ[e.series.freq]}${e.series.of ? ` · ${e.series.n} de ${e.series.of}` : ""}`}${String(e.spentAt) > todayISO() ? " · ainda não entrou no saldo" : ""}</p>` : ""}
+    <div class="row" style="margin-top:16px" id="cdRow"><button class="btn sec grow" id="cdClose">Fechar</button>${e.type === "expense" ? `<button class="btn grow" id="cdEdit">Editar</button>` : ""}<button class="btn danger" id="cdDel">Excluir</button></div>
   </div>`;
   dlg.showModal();
   const close = () => { dlg.close(); dlg.remove(); };
   dlg.querySelector("#cdClose").onclick = close;
   if(dlg.querySelector("#cdEdit")) dlg.querySelector("#cdEdit").onclick = () => { close(); go(`casal/e/${e.id}`); };
+  const rest = e.series ? c.entries.filter(x => x.series?.id === e.series.id && x.series.n >= e.series.n) : [];
+  const wipe = async list => {
+    try{ for(const x of list) await (x.type === "settlement" ? db.deleteSettlement(x.id) : db.deleteExpense(x.id)); close(); await afterCoupleWrite(list.length > 1 ? `${list.length} lançamentos excluídos` : "Excluído"); }
+    catch(err){ console.error(err); toast(err?.message || "Não consegui excluir", 5000); try{ await loadCouple(); }catch(_){} }
+  };
   dlg.querySelector("#cdDel").onclick = async () => {
+    if(rest.length > 1){                                 // faz parte de uma série: só esta, ou esta e as que vêm depois?
+      dlg.querySelector("#cdRow").outerHTML = `<div class="stack" style="gap:8px;margin-top:16px">
+        <button class="btn danger block" id="cdOne">Excluir só esta</button>
+        <button class="btn danger block" id="cdRest">Excluir esta e ${rest.length === 2 ? "a seguinte" : `as ${rest.length - 1} seguintes`}</button>
+        <button class="btn sec block" id="cdKeep">Cancelar</button></div>`;
+      dlg.querySelector("#cdOne").onclick = () => wipe([e]);
+      dlg.querySelector("#cdRest").onclick = () => wipe(rest);
+      dlg.querySelector("#cdKeep").onclick = close;
+      return;
+    }
     if(!confirm("Excluir este lançamento? Some pra vocês dois.")) return;
-    try{ await (e.type === "settlement" ? db.deleteSettlement(e.id) : db.deleteExpense(e.id)); close(); await afterCoupleWrite("Excluído"); }
-    catch(err){ console.error(err); toast(err?.message || "Não consegui excluir", 5000); }
+    wipe([e]);
   };
 }
 function coupleSettleDialog(){
   const c = getCouple(), me = meOf(c), other = otherOf(c), you = esc(firstName(other.name));
-  const t = coupleSummary(c); if(!t){ toast("Vocês estão quites ✓"); return; }
+  const t = coupleSummary(dueLedger(c)); if(!t){ toast("Vocês estão quites ✓"); return; }   // acerta só o que já venceu
   const iPay = t.from === me.id, receiver = iPay ? other : me;
   let payload = "";
   if(receiver.pix?.key){ try{ payload = buildPixPayload({ key: receiver.pix.key, name: receiver.pix.name || receiver.name, city: "BRASIL", amount: t.amount, description: "Racha" }); }catch(_){ payload = ""; } }

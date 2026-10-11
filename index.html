@@ -139,6 +139,7 @@
   .sumgrid{ display:grid; grid-template-columns:auto 1fr auto 1fr; gap:4px 10px; margin-top:8px; font-size:13px; font-weight:600 }
   .sumgrid span:nth-child(even){ text-align:right }
   @media (max-width:420px){ .sumgrid{ grid-template-columns:1fr auto } }
+  .futhead{ display:flex; width:100%; min-height:52px; align-items:center; justify-content:space-between; gap:10px; padding:6px 16px; border:0; background:transparent; color:inherit; font:inherit; text-align:left; cursor:pointer }
   .mhead{ display:flex; justify-content:space-between; align-items:baseline; gap:10px; margin:16px 0 2px; font-size:12px; font-weight:700; letter-spacing:.4px; text-transform:uppercase; color:var(--mut) }
   .mhead + .erow{ border-top:0 }
   .fab-plus{ position:fixed; z-index:21; right:12px; bottom:calc((var(--tabh) - 52px) / 2 + env(safe-area-inset-bottom)); width:52px; height:52px;

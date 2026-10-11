@@ -105,6 +105,17 @@
 - [ ] Tocar numa linha abre o detalhe (itens, quanto é de cada um, efeito no saldo).
 - [ ] (opcional) rodar `supabase/migrations/0005_realtime.sql` pra o aviso em tempo real ficar mais confiável.
 
+# Parcelado e recorrente (Casal) — v32
+- [ ] Nova despesa → **Repetir**: Uma vez · Parcelado · Recorrente.
+- [ ] **Parcelado**: 1000 em 3 vezes, "o valor é o total" → 333,34 + 333,33 + 333,33, uma por mês, "Geladeira (1/3)"…
+- [ ] "O valor é de cada parcela" → 3 lançamentos de 1000.
+- [ ] **Recorrente**: todo mês / toda semana / todo ano. Com "Vezes" e/ou "Até" respeita o menor dos dois; sem nenhum, programa 12.
+- [ ] O **saldo só conta o que já venceu**; o resto aparece em **Programado** (toque em "ver").
+- [ ] No dia do vencimento a parcela passa do Programado pro histórico e entra no saldo.
+- [ ] Detalhe de uma parcela mostra "Parcela 2 de 3"; **Excluir** oferece "só esta" ou "esta e as seguintes".
+- [ ] Recorrente sem limite: quando faltar ~45 dias pro último, aparece o cartão **Programar mais 12 / Encerrar**.
+- [ ] Despesa lançada à noite sai com a data de **hoje** (antes saía com a de amanhã depois das 21h).
+
 # (histórico) Aba Casal local — v25
 
 ## 15. Configurar o casal

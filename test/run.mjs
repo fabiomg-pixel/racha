@@ -6,7 +6,7 @@ import { buildPixPayload, validatePix, crc16 } from "../js/pix.js";
 import { parseBill } from "../js/parse.js";
 import { parseMoney } from "../js/money.js";
 import { normalizeSupabaseUrl } from "../js/db.js";
-import { createCouple, buildExpense, entryNet, ledgerBalances, coupleSummary, createStore, toRpcPayload, ledgerFromCloud } from "../js/model.js";
+import { createCouple, buildExpense, entryNet, ledgerBalances, coupleSummary, createStore, toRpcPayload, ledgerFromCloud, addMonths, seriesDates, countUntil, expandSeries, dueEntries, parseSeries, encodeSeries } from "../js/model.js";
 
 let pass = 0;
 const ok = (name, fn) => { fn(); pass++; console.log("  ok —", name); };
@@ -282,6 +282,52 @@ ok("acerto da nuvem zera o saldo e a chave Pix vem do perfil de quem tem conta",
   assert.equal(cloud.entries[1].type, "settlement"); assert.equal(cloud.entries[1].spentAt, "2026-10-02");
   assert.deepEqual(cloud.people[0].pix, { key: "fabio@pix.com", name: "Fábio Gomes" });
   assert.equal(cloud.people[1].pix, null);
+});
+
+console.log("model.js — parcelado e recorrente");
+ok("datas: mensal respeita fim de mês; semanal e anual; contar até uma data", () => {
+  assert.deepEqual(seriesDates("2026-01-31", "month", 4), ["2026-01-31", "2026-02-28", "2026-03-31", "2026-04-30"]);
+  assert.equal(addMonths("2026-11-15", 2), "2027-01-15");
+  assert.deepEqual(seriesDates("2026-10-10", "week", 3), ["2026-10-10", "2026-10-17", "2026-10-24"]);
+  assert.deepEqual(seriesDates("2024-02-29", "year", 2), ["2024-02-29", "2025-02-28"]);
+  assert.equal(countUntil("2026-10-10", "month", "2027-01-09"), 3);          // out, nov, dez
+  assert.equal(countUntil("2026-10-10", "month", "2027-01-10"), 4);
+});
+ok("parcelado pelo total: 1000 em 3x soma exatamente 1000, e a parte de cada um também fecha", () => {
+  const a = buildExpense({ description: "Geladeira", amount: 1000, method: "equal", participants: ["me", "ana"], payers: "me", spentAt: "2026-10-10" });
+  const ps = expandSeries(a, { kind: "parcel", count: 3, freq: "month", valueIs: "total" });
+  assert.deepEqual(ps.map(p => p.description), ["Geladeira (1/3)", "Geladeira (2/3)", "Geladeira (3/3)"]);
+  assert.deepEqual(ps.map(p => p.spentAt), ["2026-10-10", "2026-11-10", "2026-12-10"]);
+  assert.equal(ps.reduce((t, p) => t + Math.round(p.total * 100), 0), 100000);
+  ps.forEach(p => { assert.equal(sumCents(toMapAmt(p.shares)), Math.round(p.total * 100)); assert.equal(sumCents(toMapAmt(p.payers)), Math.round(p.total * 100)); });
+  assert.equal(new Set(ps.map(p => p.series.id)).size, 1);
+  assert.equal(new Set(ps.map(p => p.id)).size, 3);
+  assert.deepEqual(ps.map(p => [p.series.n, p.series.of]), [[1, 3], [2, 3], [3, 3]]);
+});
+ok("parcelado 'valor de cada parcela' e recorrente repetem a despesa inteira", () => {
+  const a = buildExpense({ description: "Aluguel", amount: 2400, method: "pct", weights: { me: 60, ana: 40 }, participants: ["me", "ana"], payers: "me", spentAt: "2026-10-05" });
+  const each = expandSeries(a, { kind: "parcel", count: 2, valueIs: "each" });
+  assert.deepEqual(each.map(p => p.total), [2400, 2400]);
+  const rep = expandSeries(a, { kind: "repeat", count: 12, freq: "month", open: true });
+  assert.equal(rep.length, 12); assert.equal(rep[0].description, "Aluguel"); assert.equal(rep[11].spentAt, "2027-09-05");
+  assert.equal(rep[0].series.of, 0);                                         // sem fim definido
+  assert.equal(toMapAmt(rep[5].shares).me, 1440);
+  const more = expandSeries(rep[11], { kind: "repeat", count: 2, freq: "month", open: true, from: 12, id: rep[0].series.id, start: "2026-10-05" });
+  assert.deepEqual(more.map(p => [p.series.n, p.spentAt]), [[13, "2027-10-05"], [14, "2027-11-05"]]);   // renovação continua de onde parou
+});
+ok("só o que já venceu entra no saldo; a série sobrevive à ida e volta da nuvem", () => {
+  const a = buildExpense({ description: "Curso", amount: 600, method: "equal", participants: ["mF", "mA"], payers: "mF", spentAt: "2026-10-10" });
+  const ps = expandSeries(a, { kind: "parcel", count: 3, freq: "month", valueIs: "total" });
+  const led = { people: [{ id: "mF" }, { id: "mA" }], entries: ps };
+  assert.equal(ledgerBalances({ ...led, entries: dueEntries(ps, "2026-10-10") }).mF, 100);    // só a 1ª parcela
+  assert.equal(ledgerBalances({ ...led, entries: dueEntries(ps, "2026-11-10") }).mF, 200);
+  assert.equal(ledgerBalances({ ...led, entries: dueEntries(ps, "2026-10-09") }).mF, 0);
+  const row = toRpcPayload("g1", ps[1]);
+  assert.deepEqual(parseSeries(row.place), ps[1].series);
+  assert.equal(parseSeries("Bar do Zé"), null); assert.equal(parseSeries(null), null); assert.equal(encodeSeries(null), null);
+  const cloud = ledgerFromCloud({ group: GROUP, members: MEMBERS, myUserId: "uF", settlements: [],
+    expenses: [{ ...asRow("e9", row, "2026-10-10T00:00:00Z"), place: row.place }] });
+  assert.deepEqual(cloud.entries[0].series, ps[1].series);
 });
 
 console.log(`\n${pass} testes passaram ✓`);
