@@ -426,7 +426,11 @@ const LOCAL = createStore();                       // histórico antigo, de quan
 function localCouple(){ try{ return LOCAL.list().find(l => l.kind === "couple") || null; }catch(_){ return null; } }
 function getCouple(){ return COUPLE; }
 const meOf = c => c.people.find(p => p.isMe) || c.people[0];
-const otherOf = c => c.people.find(p => !p.isMe) || c.people[1];
+const otherOf = c => c.people.find(p => !p.isMe && p.userId) || c.people.find(p => !p.isMe) || c.people[1];   // prefere quem já entrou
+// pessoa duplicada: o par entrou pelo convite como pessoa nova e o nome antigo (sem conta) ficou sobrando
+const strayGhosts = c => (otherOf(c)?.userId ? c.people.filter(p => !p.isMe && !p.userId) : []);
+const touches = (e, id) => e.type === "settlement" ? (e.from === id || e.to === id)
+  : (e.shares || []).some(x => x.id === id) || (e.payers || []).some(x => x.id === id);
 const firstName = n => String(n || "").trim().split(/\s+/)[0] || "?";
 
 async function loadCouple(){
@@ -466,6 +470,33 @@ async function routeCasal(){
   if(seq !== COUPLE_SEQ || activeTab() !== "casal" || document.querySelector("dialog[open]")) return;
   paint();
 }
+// Passa pro par (que tem conta) tudo que ficou no nome antigo, e remove o nome antigo.
+// Cada despesa é regravada inteira pelo mesmo RPC de edição, que confere as somas; o fantasma só sai no fim,
+// então se cair no meio nada se perde e dá pra tocar de novo.
+async function mergeStrayGhosts(c){
+  const real = otherOf(c), ghosts = strayGhosts(c).map(g => g.id);
+  if(!real?.userId || !ghosts.length) return 0;
+  const fix = id => (ghosts.includes(id) ? real.id : id);
+  const fold = arr => { const m = {}, order = []; (arr || []).forEach(x => { const k = fix(x.id); if(!(k in m)){ m[k] = 0; order.push(k); } m[k] = round2(m[k] + Number(x.amount || 0)); });
+    return order.map(id => ({ id, amount: m[id] })); };
+  const uniq = a => [...new Set((a || []).map(fix))];
+  let n = 0;
+  for(const e of c.entries){
+    if(!ghosts.some(g => touches(e, g))) continue;
+    if(e.type === "settlement"){
+      const from = fix(e.from), to = fix(e.to);
+      if(from !== to) await db.addSettlement({ groupId: c.id, from, to, amount: e.amount, settledAt: e.createdAt || null });
+      await db.deleteSettlement(e.id);
+    } else {
+      const moved = { ...e, participants: uniq(e.participants), shares: fold(e.shares), payers: fold(e.payers),
+        ...(e.items ? { items: e.items.map(it => ({ ...it, consumers: uniq(it.consumers) })) } : {}) };
+      await db.updateExpense({ ...toRpcPayload(c.id, moved), id: e.id });
+    }
+    n++;
+  }
+  for(const g of ghosts) await db.removeMember(g);
+  return n;
+}
 // depois de gravar: relê a nuvem e volta pra home do casal
 async function afterCoupleWrite(msg){
   await loadCouple(); if(msg) toast(msg);
@@ -483,6 +514,13 @@ function renderCasal(){
       <div class="sm" style="margin:4px 0 12px;font-weight:500">Mande o convite. ${you} entra com o próprio e-mail e passa a ver e lançar junto com você.</div>
       <div class="row"><a class="btn sm grow" target="_blank" href="https://wa.me/?text=${encodeURIComponent("Entra no nosso racha de casal: " + link)}">Mandar no WhatsApp</a><button class="btn sec sm" id="cpCopy">Copiar link</button></div>
     </div>`;
+  const stray = strayGhosts(c);
+  const strayN = stray.length ? c.entries.filter(e => stray.some(g => touches(e, g.id))).length : 0;
+  const dupCard = stray.length ? `<div class="preview neg" style="margin-bottom:16px">
+      <div class="effect">${esc(stray[0].name)} aparece duas vezes</div>
+      <div class="sm" style="margin:4px 0 12px;font-weight:500">${you} entrou pelo convite como pessoa nova, e o nome antigo ficou sobrando. ${strayN ? `${strayN} ${strayN === 1 ? "lançamento está" : "lançamentos estão"} no nome antigo, por isso o saldo de vocês não bate.` : "Dá pra remover o nome antigo."}</div>
+      <button class="btn block" id="cpMerge">Juntar tudo em ${you}</button>
+    </div>` : "";
   const quite = Math.abs(mine) < 0.005;
   const label = quite ? "Tudo certo entre vocês" : mine > 0 ? `${you} te deve` : `Você deve a ${you}`;
   const actions = quite ? "" : mine > 0
@@ -546,7 +584,7 @@ function renderCasal(){
     </div></section>
     <section class="sheet"><div class="wrapc">
       <div class="sheet-head"><h2 style="margin:0">Histórico</h2><span class="sm mut">${count ? `${count} ${count === 1 ? "lançamento" : "lançamentos"}` : ""}</span></div>
-      ${invite}
+      ${invite}${dupCard}
       ${chips}${summary}
       ${rows || `<div class="empty">Nenhum lançamento ainda.<br>Toque no <b>+</b> pra lançar a primeira despesa — ou rache uma conta na aba <b>Racha</b> e guarde a parte de vocês.</div>`}
     </div></section>
@@ -555,6 +593,11 @@ function renderCasal(){
   $("#cpCfg").onclick = openCfg;
   $("#cpNew").onclick = () => go("casal/new");
   if($("#cpCopy")) $("#cpCopy").onclick = () => copy(link);
+  if($("#cpMerge")) $("#cpMerge").onclick = async () => {
+    const btn = $("#cpMerge"); btn.disabled = true; btn.textContent = "Juntando…";
+    try{ const n = await mergeStrayGhosts(await loadCouple()); await loadCouple(); toast(`Pronto ✓ ${n} ${n === 1 ? "lançamento corrigido" : "lançamentos corrigidos"}`, 4000); renderCasal(); }
+    catch(e){ console.error(e); toast(e?.message || "Não consegui juntar. Tente de novo.", 5000); try{ await loadCouple(); }catch(_){} renderCasal(); }
+  };
   app.querySelectorAll("[data-cat]").forEach(b => b.onclick = () => { CASAL_CAT = b.dataset.cat === "*" ? null : decodeURIComponent(b.dataset.cat); renderCasal(); });
   // confere a nuvem e só redesenha se algo mudou (não pisca nem perde a rolagem à toa)
   REFRESH = async () => {
@@ -1576,12 +1619,16 @@ async function renderJoin(groupId){
   let name = "Grupo", ghosts = [];
   try{ [name, ghosts] = await Promise.all([ db.groupNameOf(groupId), db.ghostsOf(groupId) ]); }
   catch(e){ console.error(e); toast("Convite inválido"); return go("grupos"); }
-  const ghostBtns = ghosts.length ? `<h3>Algum desses é você?</h3>
-    <p class="sm mut" style="margin-top:0">Se você já aparece na conta, escolha seu nome pra juntar tudo.</p>
-    ${ghosts.map(g => `<button class="btn sec block" style="margin-bottom:8px" data-claim="${g.id}">Sou ${esc(g.display_name)}</button>`).join("")}` : "";
+  // Quem foi convidado quase sempre JÁ está na conta com o nome que o outro digitou. Assumir esse nome é o caminho
+  // principal; entrar como pessoa nova duplica a pessoa (o que um lança não chega no saldo do outro).
+  const ghostBtns = ghosts.length ? `<h3>${ghosts.length === 1 ? "Este é você?" : "Qual destes é você?"}</h3>
+    <p class="sm mut" style="margin-top:0">Seu nome já está na conta. Toque nele pra ver e lançar no mesmo lugar.</p>
+    ${ghosts.map(g => `<button class="btn block" style="margin-bottom:8px" data-claim="${g.id}">Sou ${esc(g.display_name)}</button>`).join("")}` : "";
   app.innerHTML = `<div class="card">
     <h2>Entrar em “${esc(name||"Grupo")}”</h2>${ghostBtns}
-    <button class="btn block" id="joinNew" style="margin-top:8px">Entrar como ${esc(PROFILE?.name || "novo membro")}</button>
+    ${ghosts.length
+      ? `<p class="sm mut" style="text-align:center;margin-top:14px"><a class="link" id="joinNew">Não sou ${ghosts.length === 1 ? "essa pessoa" : "nenhuma dessas"} — entrar como pessoa nova</a></p>`
+      : `<button class="btn block" id="joinNew" style="margin-top:8px">Entrar como ${esc(PROFILE?.name || "novo membro")}</button>`}
     <p class="sm mut" style="text-align:center;margin-top:10px"><a class="link" href="#grupos">cancelar</a></p></div>`;
   const join = async (claim) => { await guard(() => db.joinGroup(groupId, claim), "Não consegui entrar"); localStorage.removeItem("racha.join");
     const kind = (await db.myGroups().catch(() => [])).find(g => g.id === groupId)?.kind;
