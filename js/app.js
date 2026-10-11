@@ -86,7 +86,8 @@ let ITEM_SINK = null;   // pra onde foto/texto mandam os itens lidos (definido p
 // ao voltar pro app, ao reconectar e a cada poucos segundos enquanto está aberta. REFRESH é definido pela tela atual.
 let REFRESH = null, refreshBusy = false;
 async function softRefresh(){
-  if(!REFRESH || refreshBusy || document.hidden || !navigator.onLine || document.querySelector("dialog[open]")) return;
+  const bg = document.hidden && !(typeof Notification !== "undefined" && Notification.permission === "granted");   // em segundo plano só confere se puder avisar
+  if(!REFRESH || refreshBusy || bg || !navigator.onLine || document.querySelector("dialog[open]")) return;
   refreshBusy = true;
   try{ await REFRESH(); }catch(e){ console.warn("refresh", e); }finally{ refreshBusy = false; }
 }
@@ -423,6 +424,37 @@ let CASAL_FUT = false;                              // seção "Programado" aber
 const dueLedger = c => ({ ...c, entries: dueEntries(c.entries, todayISO()) });   // só o que já venceu conta no saldo
 const fmtWhen = iso => fmtShort(iso) + (String(iso || "").slice(0, 4) === todayISO().slice(0, 4) ? "" : " " + String(iso || "").slice(0, 4));
 const FREQ = { month: "todo mês", week: "toda semana", year: "todo ano" };
+// Novidades: o que a OUTRA pessoa lançou desde a última vez que você viu. Marca por aparelho (localStorage).
+const seenKey = c => "racha.visto." + c.id;
+// O marco é a hora do SERVIDOR do lançamento mais recente (não o relógio do aparelho, que pode estar adiantado).
+const latestAt = c => c.entries.reduce((m, e) => (String(e.createdAt || "") > m ? String(e.createdAt) : m), "0");
+function seenAt(c){ try{ let v = localStorage.getItem(seenKey(c)); if(!v){ v = latestAt(c); localStorage.setItem(seenKey(c), v); } return v; }catch(_){ return "9999"; } }   // 1ª vez: nada é novidade
+function markSeen(c){ try{ localStorage.setItem(seenKey(c), latestAt(c)); }catch(_){} }
+function newsOf(c){
+  const since = seenAt(c), mine = ME?.id, seen = new Set(), out = [];
+  c.entries.forEach(e => {
+    if(!e.createdBy || e.createdBy === mine || String(e.createdAt || "") <= since) return;
+    const k = e.series?.id || e.id; if(seen.has(k)) return; seen.add(k);
+    const n = e.series ? c.entries.filter(x => x.series?.id === e.series.id && String(x.createdAt || "") > since).length : 1;
+    out.push({ e, n });
+  });
+  return out;
+}
+const newsText = (x, who) => x.e.type === "settlement" ? `${who} registrou um acerto de ${brlNB(x.e.amount)}`
+  : `${who} lançou ${String(x.e.description || "Despesa").replace(/\s*\(\d+\/\d+\)$/, "")} · ${brlNB(x.e.total)}${x.n > 1 ? ` (${x.n} lançamentos)` : ""}`;
+let ANNOUNCED = new Set();                          // o que já virou aviso nesta sessão (não repete a cada conferência)
+function announce(c){
+  const who = firstName(otherOf(c)?.name), fresh = newsOf(c).filter(x => !ANNOUNCED.has(x.e.id));
+  if(!fresh.length) return;
+  fresh.forEach(x => ANNOUNCED.add(x.e.id));
+  const msg = fresh.length === 1 ? newsText(fresh[0], who) : `${who} lançou ${fresh.length} contas novas`;
+  toast(msg, 6000);
+  try{ if(navigator.vibrate) navigator.vibrate(120); }catch(_){}
+  try{                                              // com permissão, também vira notificação do sistema (enquanto o app estiver aberto ou em segundo plano)
+    if(typeof Notification !== "undefined" && Notification.permission === "granted" && document.hidden)
+      navigator.serviceWorker?.ready.then(r => r.showNotification("Racha", { body: msg, tag: "racha-conta", icon: "./icon.svg" })).catch(() => {});
+  }catch(_){}
+}
 const coupleSig = c => (c ? JSON.stringify([c.name, c.people, c.entries]) : "");
 const MONTHS_FULL = ["Janeiro", "Fevereiro", "Março", "Abril", "Maio", "Junho", "Julho", "Agosto", "Setembro", "Outubro", "Novembro", "Dezembro"];
 const LOCAL = createStore();                       // histórico antigo, de quando o casal morava só neste aparelho
@@ -517,6 +549,16 @@ function renderCasal(){
       <div class="sm" style="margin:4px 0 12px;font-weight:500">Mande o convite. ${you} entra com o próprio e-mail e passa a ver e lançar junto com você.</div>
       <div class="row"><a class="btn sm grow" target="_blank" href="https://wa.me/?text=${encodeURIComponent("Entra no nosso racha de casal: " + link)}">Mandar no WhatsApp</a><button class="btn sec sm" id="cpCopy">Copiar link</button></div>
     </div>`;
+  const news = newsOf(c), newIds = new Set();
+  const since = seenAt(c);
+  c.entries.forEach(e => { if(e.createdBy && e.createdBy !== ME?.id && String(e.createdAt || "") > since) newIds.add(e.id); });
+  news.forEach(x => ANNOUNCED.add(x.e.id));                    // já está na tela: não precisa virar toast depois
+  const canAsk = typeof Notification !== "undefined" && Notification.permission === "default";
+  const newsCard = news.length ? `<div class="preview" style="margin-bottom:16px">
+      <div class="effect">${news.length === 1 ? "Conta nova" : news.length + " contas novas"}</div>
+      <div class="sm" style="margin:6px 0 12px;font-weight:500;display:grid;gap:3px">${news.slice(0, 4).map(x => `<span class="num">${esc(newsText(x, firstName(other.name)))}</span>`).join("")}${news.length > 4 ? `<span>e mais ${news.length - 4}</span>` : ""}</div>
+      <div class="row"><button class="btn sm grow" id="cpSeen">Entendi</button>${canAsk ? `<button class="btn sec sm" id="cpNotify">Ativar notificação</button>` : ""}</div>
+    </div>` : "";
   const stray = strayGhosts(c);
   const strayN = stray.length ? c.entries.filter(e => stray.some(g => touches(e, g.id))).length : 0;
   const dupCard = stray.length ? `<div class="preview neg" style="margin-bottom:16px">
@@ -574,7 +616,7 @@ function renderCasal(){
     const payer = (e.payers || []).length > 1 ? "vocês dois pagaram" : (e.payers?.[0]?.id === me.id ? "você pagou" : `${you} pagou`);
     return `<div class="erow" data-entry="${e.id}" role="button" tabindex="0">
       <div class="ico ${tone(n)}">${icon(catIcon(e.category))}</div>
-      <div class="grow" style="min-width:0"><div class="t">${esc(e.description || "Despesa")}</div><div class="s num">${fmtWhen(e.spentAt)} · ${brlNB(e.total)} · ${payer}${e.series?.kind === "repeat" ? " · " + FREQ[e.series.freq] : ""}</div></div>
+      <div class="grow" style="min-width:0"><div class="t">${newIds.has(e.id) ? `<span class="newdot" title="novo"></span>` : ""}${esc(e.description || "Despesa")}</div><div class="s num">${fmtWhen(e.spentAt)} · ${brlNB(e.total)} · ${payer}${e.series?.kind === "repeat" ? " · " + FREQ[e.series.freq] : ""}</div></div>
       <div class="v num ${tone(n)}">${signed(n)}</div></div>`;
   }
   const count = entries.length;
@@ -602,7 +644,7 @@ function renderCasal(){
     </div></section>
     <section class="sheet"><div class="wrapc">
       <div class="sheet-head"><h2 style="margin:0">Histórico</h2><span class="sm mut">${count ? `${count} ${count === 1 ? "lançamento" : "lançamentos"}` : ""}</span></div>
-      ${invite}${dupCard}${renewCard}${futCard}
+      ${newsCard}${invite}${dupCard}${renewCard}${futCard}
       ${chips}${summary}
       ${rows || `<div class="empty">Nenhum lançamento ainda.<br>Toque no <b>+</b> pra lançar a primeira despesa — ou rache uma conta na aba <b>Racha</b> e guarde a parte de vocês.</div>`}
     </div></section>
@@ -612,6 +654,11 @@ function renderCasal(){
   $("#cpNew").onclick = () => go("casal/new");
   if($("#cpCopy")) $("#cpCopy").onclick = () => copy(link);
   if($("#cpFut")) $("#cpFut").onclick = () => { CASAL_FUT = !CASAL_FUT; renderCasal(); };
+  if($("#cpSeen")) $("#cpSeen").onclick = () => { markSeen(c); renderCasal(); };
+  if($("#cpNotify")) $("#cpNotify").onclick = async () => {
+    let p = "denied"; try{ p = await Notification.requestPermission(); }catch(_){}
+    toast(p === "granted" ? "Notificação ativada ✓" : "O navegador não deixou. Dá pra liberar nas configurações do site.", 4500); renderCasal();
+  };
   app.querySelectorAll("[data-renew]").forEach(b => b.onclick = async () => {
     const last = c.entries.find(x => x.id === b.dataset.renew); if(!last) return;
     if(!last.series.start){ toast("Não consegui continuar esta série. Lance de novo como recorrente."); return; }
@@ -638,7 +685,8 @@ function renderCasal(){
   REFRESH = async () => {
     const before = coupleSig(COUPLE);
     await loadCouple();
-    if(activeTab() === "casal" && parseHash().parts.length === 1 && coupleSig(COUPLE) !== before) renderCasal();
+    if(COUPLE && coupleSig(COUPLE) !== before) announce(COUPLE);
+    if(activeTab() === "casal" && parseHash().parts.length === 1 && coupleSig(COUPLE) !== before && !document.hidden) renderCasal();
   };
   if(!LIVE) LIVE = db.subscribeGroup(c.id, () => { clearTimeout(liveTimer); liveTimer = setTimeout(softRefresh, 400); });   // caminho rápido
   if($("#cpSettle")) $("#cpSettle").onclick = coupleSettleDialog;
@@ -739,7 +787,7 @@ function renderCoupleExpense(editId){
   const c = getCouple(); if(!c) return renderCoupleSetup(null);
   const me = meOf(c);
   const d = CDRAFT = { editId: null, description: "", category: "", spentAt: todayISO(), payer: me.id, mode: "equal", total: 0, exact: {}, items: [], serviceOn: false, serviceRate: 0.10, couvert: 0, discount: 0, billTotal: null, focusValue: true,
-    rep: "one", repN: 12, repValue: "total", repFreq: "month", repTimes: "", repUntil: "" };   // rep: uma vez · parcelado · recorrente
+    rep: "one", repN: 12, repValue: "total", repFreq: "month", repEnd: "none", repTimes: "", repUntil: "" };   // rep: uma vez · parcelado · recorrente
   if(editId){
     const e = c.entries.find(x => x.id === editId && x.type === "expense");
     if(!e){ toast("Despesa não encontrada"); return go("casal"); }
@@ -841,11 +889,11 @@ function paintCoupleExpense(){
         </div>` : ""}
         ${d.rep === "repeat" ? `<div class="stack" style="gap:9px;margin-top:9px">
           <div class="seg c3">${[["month", "Todo mês"], ["week", "Toda semana"], ["year", "Todo ano"]].map(([v, l]) => `<button class="opt ${d.repFreq === v ? "on" : ""}" data-repfreq="${v}">${l}</button>`).join("")}</div>
-          <div class="seg c2">
-            <label class="tile tight"><span>Vezes</span><input id="ceRepTimes" type="text" inputmode="numeric" value="${esc(d.repTimes)}" placeholder="sem limite" style="text-align:right"></label>
-            <label class="tile tight"><span>Até</span><input id="ceRepUntil" type="date" value="${esc(d.repUntil)}" aria-label="repetir até"></label>
-          </div>
-          <div class="sm mut">Vezes e data final são opcionais. A primeira é na data da despesa.</div>
+          <div class="flabel" style="margin:6px 0 0">Até quando</div>
+          <div class="seg c3">${[["none", "Sem data limite"], ["date", "Até uma data"], ["times", "Nº de vezes"]].map(([v, l]) => `<button class="opt ${d.repEnd === v ? "on" : ""}" data-repend="${v}">${l}</button>`).join("")}</div>
+          ${d.repEnd === "date" ? `<label class="tile"><span>Última em</span><input id="ceRepUntil" type="date" value="${esc(d.repUntil)}" min="${esc(d.spentAt)}" aria-label="repetir até"></label>` : ""}
+          ${d.repEnd === "times" ? `<label class="tile"><span>Repetir</span><input id="ceRepTimes" type="text" inputmode="numeric" value="${esc(d.repTimes)}" placeholder="ex.: 6" style="text-align:right"><span style="width:auto">vezes</span></label>` : ""}
+          <div class="sm mut">A primeira é na data da despesa.</div>
         </div>` : ""}
       </div>`}
       <div><div id="ceCheck"></div><div id="cePreview"></div></div>
@@ -862,6 +910,7 @@ function paintCoupleExpense(){
   app.querySelectorAll("[data-rep]").forEach(el => el.onclick = () => { d.rep = el.dataset.rep; paintCoupleExpense(); });
   app.querySelectorAll("[data-repval]").forEach(el => el.onclick = () => { d.repValue = el.dataset.repval; paintCoupleExpense(); });
   app.querySelectorAll("[data-repfreq]").forEach(el => el.onclick = () => { d.repFreq = el.dataset.repfreq; paintCoupleExpense(); });
+  app.querySelectorAll("[data-repend]").forEach(el => el.onclick = () => { d.repEnd = el.dataset.repend; paintCoupleExpense(); });
   if($("#ceRepN")) $("#ceRepN").oninput = e => { d.repN = e.target.value; refreshCouplePreview(); };
   if($("#ceRepTimes")) $("#ceRepTimes").oninput = e => { d.repTimes = e.target.value; refreshCouplePreview(); };
   if($("#ceRepUntil")) $("#ceRepUntil").oninput = e => { d.repUntil = e.target.value; refreshCouplePreview(); };
@@ -901,13 +950,17 @@ function repPlan(d){
     const n = Math.floor(Number(String(d.repN).replace(/\D/g, "")) || 0);
     return n >= 2 ? { kind: "parcel", count: Math.min(n, 60), freq: "month", valueIs: d.repValue } : null;
   }
-  const times = Math.floor(Number(String(d.repTimes).replace(/\D/g, "")) || 0);
-  const byDate = d.repUntil ? countUntil(d.spentAt, d.repFreq, d.repUntil) : 0;
-  if(d.repUntil && byDate < 1) return { kind: "repeat", count: 1, freq: d.repFreq, bad: "A data final é antes da primeira." };
-  if(times && byDate) return { kind: "repeat", count: Math.min(times, byDate), freq: d.repFreq };
-  if(times) return { kind: "repeat", count: Math.min(times, 120), freq: d.repFreq };
-  if(byDate) return { kind: "repeat", count: byDate, freq: d.repFreq };
-  return { kind: "repeat", count: 12, freq: d.repFreq, open: true };      // sem limite: 12 por vez, com aviso pra continuar
+  const one = bad => ({ kind: "repeat", count: 1, freq: d.repFreq, bad });
+  if(d.repEnd === "date"){
+    if(!d.repUntil) return one("Escolha a data da última cobrança.");
+    const n = countUntil(d.spentAt, d.repFreq, d.repUntil);
+    return n < 1 ? one("A data final é antes da primeira.") : { kind: "repeat", count: n, freq: d.repFreq };
+  }
+  if(d.repEnd === "times"){
+    const times = Math.floor(Number(String(d.repTimes).replace(/\D/g, "")) || 0);
+    return times < 1 ? one("Diga quantas vezes repetir.") : { kind: "repeat", count: Math.min(times, 120), freq: d.repFreq };
+  }
+  return { kind: "repeat", count: 12, freq: d.repFreq, open: true };      // sem data limite: 12 por vez, com aviso pra continuar
 }
 // Prévia: mostra o SALDO que fica depois desta despesa — e, entre parênteses, quanto ela mexe.
 // (Antes dizia "passa a te dever" com o delta, o que lia como saldo final e estava errado.)
@@ -932,7 +985,7 @@ function refreshCouplePreview(){
   const planLine = !plan ? "" : `<div class="rule"></div><div class="sm" style="font-weight:600">${
     plan.bad ? plan.bad
     : plan.kind === "parcel" ? `${list.length} parcelas de ${brlNB(first.total)}, de ${fmtWhen(first.spentAt)} a ${fmtWhen(lastOne.spentAt)}. Total ${brlNB(list.reduce((t, x) => t + x.total, 0))}.`
-    : plan.open ? `${brlNB(first.total)} ${FREQ[plan.freq]}, sem data pra acabar. Programo 12 e aviso quando estiver acabando.`
+    : plan.open ? `${brlNB(first.total)} ${FREQ[plan.freq]}, sem data limite. Ficam 12 programados por vez, e eu aviso pra continuar quando estiverem acabando.`
     : `${brlNB(first.total)} ${FREQ[plan.freq]}, ${list.length} ${list.length === 1 ? "vez" : "vezes"}, até ${fmtWhen(lastOne.spentAt)}.`
   }${plan.bad ? "" : " Cada uma entra no saldo na sua data."}</div>`;
   const effect = !counts ? `Entra no saldo em ${fmtWhen(first.spentAt)}.`

@@ -43,7 +43,7 @@ export const ledgerExpenses = async gid => S.expenses.filter(e => e.group_id ===
 export const listExpenses = ledgerExpenses;
 export const getExpense = async eid => S.expenses.find(e => e.id === eid);
 export const groupExport = ledgerExpenses;
-export const saveExpense = async p => { check(p); log("create_expense", p); const e = { ...p, id: id("e"), created_at: now() }; S.expenses.push(e); ping(); return e.id; };
+export const saveExpense = async p => { check(p); log("create_expense", p); const e = { ...p, id: id("e"), created_at: now(), created_by: S.user.id }; S.expenses.push(e); ping(); return e.id; };
 export const updateExpense = async p => { check(p); log("update_expense", p); Object.assign(S.expenses.find(e => e.id === p.id), p); ping(); return p.id; };
 export const deleteExpense = async eid => { log("deleteExpense", eid); S.expenses = S.expenses.filter(e => e.id !== eid); ping(); };
 export const groupActivity = async () => [];
@@ -54,6 +54,6 @@ export const subscribeGroup = (gid, fn) => { S.listeners.push(fn); return { fn }
 export const unsubscribe = ch => { S.listeners = S.listeners.filter(f => f !== ch?.fn); };
 export const balances = async () => [];
 export const listSettlements = async gid => S.settlements.filter(x => x.group_id === gid);
-export const addSettlement = async ({ groupId, from, to, amount, settledAt }) => { const x = { id: id("s"), group_id: groupId, from_member: from, to_member: to, amount, settled_at: settledAt || now() }; log("addSettlement", x); S.settlements.push(x); ping(); return x; };
+export const addSettlement = async ({ groupId, from, to, amount, settledAt }) => { const x = { id: id("s"), group_id: groupId, from_member: from, to_member: to, amount, settled_at: settledAt || now(), created_by: S.user.id }; log("addSettlement", x); S.settlements.push(x); ping(); return x; };
 export const deleteSettlement = async sid => { log("deleteSettlement", sid); S.settlements = S.settlements.filter(x => x.id !== sid); ping(); };
 export const memberPix = async uid => S.profiles[uid] || null;

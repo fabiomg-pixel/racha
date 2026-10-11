@@ -301,14 +301,14 @@ export function ledgerFromCloud({ group, members = [], expenses = [], settlement
     const even = shares.length > 0 && shares.every(x => Math.abs(x.amount - shares[0].amount) <= 0.011);
     return {
       id: e.id, type: "expense", description: e.description || "Despesa", category: e.category || null, note: e.note || null,
-      spentAt: e.spent_at, createdAt: e.created_at, method: items.length ? "item" : even ? "equal" : "exact",
+      spentAt: e.spent_at, createdAt: e.created_at, createdBy: e.created_by || null, method: items.length ? "item" : even ? "equal" : "exact",
       total: round2(e.total), participants: shares.map(x => x.id), shares, payers,
       ...(parseSeries(e.place) ? { series: parseSeries(e.place) } : {}),
       ...(items.length ? { items, opts: { serviceRate: Number(e.service_rate) || 0, couvert: Number(e.couvert) || 0, discount: Number(e.discount) || 0 } } : {}),
     };
   });
   const set = settlements.map(x => ({ id: x.id, type: "settlement", from: x.from_member, to: x.to_member, amount: round2(x.amount),
-    spentAt: String(x.settled_at || "").slice(0, 10), createdAt: x.settled_at, note: x.note || null }));
+    spentAt: String(x.settled_at || "").slice(0, 10), createdAt: x.settled_at, createdBy: x.created_by || null, note: x.note || null }));
   const entries = [...exp, ...set].sort((a, b) => String(a.createdAt || "").localeCompare(String(b.createdAt || "")));
   return { id: group.id, kind: group.kind || "group", name: group.name, people, entries, createdAt: group.created_at, cloud: true };
 }
