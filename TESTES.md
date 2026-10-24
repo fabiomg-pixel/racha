@@ -149,5 +149,12 @@
 ## 20. Persistência
 - [ ] Fechar e reabrir o app (ou recarregar): casal e histórico continuam (localStorage — só neste aparelho).
 
+## 21. Grupos: parcelado e recorrente
+- [ ] Nova despesa de grupo → **Repetir**: Uma vez · Parcelado · Recorrente (igual ao Casal). A prévia mostra "3 parcelas de R$ 100…".
+- [ ] Parcelado pelo total (1000 em 3x = 333,34 + 333,33 + 333,33) ou "valor de cada parcela"; vale pra qualquer forma de dividir e pra vários pagadores.
+- [ ] Só o que já venceu entra em **Saldo** e **Acertar**; o resto fica em **Programado** (recolhido).
+- [ ] Recorrente sem fim programa 12; perto do fim aparece "Programar mais 12 / Encerrar".
+- [ ] O campo **Lugar** continua livre e aparece sem a marca interna da série; excluir parcela oferece "só esta" ou "esta e as seguintes".
+
 ---
 **Anotar bugs:** o que fez, o que esperava, o que aconteceu, e (se der) o print + a mensagem embaixo do botão / no console.

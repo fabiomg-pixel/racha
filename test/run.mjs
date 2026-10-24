@@ -6,7 +6,7 @@ import { buildPixPayload, validatePix, crc16 } from "../js/pix.js";
 import { parseBill } from "../js/parse.js";
 import { parseMoney } from "../js/money.js";
 import { normalizeSupabaseUrl } from "../js/db.js";
-import { createCouple, buildExpense, entryNet, ledgerBalances, coupleSummary, createStore, toRpcPayload, ledgerFromCloud, addMonths, seriesDates, countUntil, expandSeries, dueEntries, parseSeries, encodeSeries } from "../js/model.js";
+import { createCouple, buildExpense, entryNet, ledgerBalances, coupleSummary, createStore, toRpcPayload, ledgerFromCloud, addMonths, seriesDates, countUntil, expandSeries, dueEntries, parseSeries, encodeSeries, encodePlace, placeText } from "../js/model.js";
 
 let pass = 0;
 const ok = (name, fn) => { fn(); pass++; console.log("  ok —", name); };
@@ -328,6 +328,14 @@ ok("só o que já venceu entra no saldo; a série sobrevive à ida e volta da nu
   const cloud = ledgerFromCloud({ group: GROUP, members: MEMBERS, myUserId: "uF", settlements: [],
     expenses: [{ ...asRow("e9", row, "2026-10-10T00:00:00Z"), place: row.place }] });
   assert.deepEqual(cloud.entries[0].series, ps[1].series);
+});
+
+ok("Grupo: o Lugar do usuário convive com a marca da série", () => {
+  const sr = { id: "s1", n: 2, of: 5, kind: "parcel", freq: "month", start: "2026-10-10" };
+  const pl = encodePlace("Bar do Zé", sr);
+  assert.equal(placeText(pl), "Bar do Zé"); assert.deepEqual(parseSeries(pl), sr);
+  assert.equal(placeText(encodePlace("", sr)), ""); assert.deepEqual(parseSeries(encodePlace("", sr)), sr);
+  assert.equal(encodePlace("Bar do Zé", null), "Bar do Zé"); assert.equal(placeText("Bar do Zé"), "Bar do Zé"); assert.equal(parseSeries("Bar do Zé"), null);
 });
 
 console.log(`\n${pass} testes passaram ✓`);
