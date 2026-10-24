@@ -12,8 +12,10 @@ import { parseBill } from "./parse.js";
 import { parseMoney, brl } from "./money.js";
 import { buildExpense, entryNet, ledgerBalances, coupleSummary, createStore, removeEntry, toRpcPayload, ledgerFromCloud, expandSeries, dueEntries, countUntil, addDays, todayISO, encodePlace, placeText, parseSeries } from "./model.js";
 
+const APP_VERSION = "v33";   // acompanha o CACHE de sw.js: suba os dois juntos. Aparece ao lado do logo pra saber o que carregou.
 const $ = s => document.querySelector(s);
 const app = $("#app");
+if($("#appVer")) $("#appVer").textContent = APP_VERSION;
 const esc = s => String(s ?? "").replace(/[&<>"']/g, c => ({ "&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;" }[c]));
 const fmtDate = iso => { try{ return new Date(iso + "T12:00").toLocaleDateString("pt-BR", { day:"2-digit", month:"short" }); }catch(_){ return iso; } };
 const round2 = n => Math.round((Number(n)||0) * 100) / 100;
