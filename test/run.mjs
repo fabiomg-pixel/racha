@@ -5,6 +5,7 @@ import { simplifyDebts, directDebts } from "../js/ledger.js";
 import { buildPixPayload, validatePix, crc16 } from "../js/pix.js";
 import { parseBill } from "../js/parse.js";
 import { parseMoney } from "../js/money.js";
+import { urlB64ToUint8, VAPID_PUBLIC } from "../js/push.js";
 import { normalizeSupabaseUrl, normalizeEmail } from "../js/db.js";
 import { createCouple, buildExpense, entryNet, ledgerBalances, coupleSummary, createStore, toRpcPayload, ledgerFromCloud, addMonths, seriesDates, countUntil, expandSeries, dueEntries, parseSeries, encodeSeries } from "../js/model.js";
 
@@ -157,6 +158,13 @@ ok("parseBill: 3 itens por 10,00 (unitário não inteiro) fecha ao centavo no ra
   const s = computeShares(["a", "b", "c"], r.items.map(i => ({ ...i, consumers: ["a", "b", "c"] })));
   assert.equal(Math.round(s.total * 100), 1000);
   assert.equal(sumCents(s.shares), 1000);
+});
+
+console.log("push.js");
+ok("chave VAPID pública decodifica em 65 bytes (ponto P-256 não comprimido)", () => {
+  const k = urlB64ToUint8(VAPID_PUBLIC);
+  assert.equal(k.length, 65);
+  assert.equal(k[0], 4);
 });
 
 console.log("db.js");

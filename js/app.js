@@ -9,6 +9,7 @@ import { computeShares, allocateByWeights } from "./split.js";
 import { simplifyDebts, netFromRows } from "./ledger.js";
 import { buildPixPayload } from "./pix.js";
 import { parseBill } from "./parse.js";
+import { pushStatus, enablePush, disablePush } from "./push.js";
 import { parseMoney, brl } from "./money.js";
 import { buildExpense, entryNet, ledgerBalances, coupleSummary, createStore, removeEntry, toRpcPayload, ledgerFromCloud, expandSeries, dueEntries, countUntil, addDays, todayISO } from "./model.js";
 
@@ -656,8 +657,8 @@ function renderCasal(){
   if($("#cpFut")) $("#cpFut").onclick = () => { CASAL_FUT = !CASAL_FUT; renderCasal(); };
   if($("#cpSeen")) $("#cpSeen").onclick = () => { markSeen(c); renderCasal(); };
   if($("#cpNotify")) $("#cpNotify").onclick = async () => {
-    let p = "denied"; try{ p = await Notification.requestPermission(); }catch(_){}
-    toast(p === "granted" ? "Notificação ativada ✓" : "O navegador não deixou. Dá pra liberar nas configurações do site.", 4500); renderCasal();
+    try{ await enablePush(); toast("Notificação ativada ✓"); }catch(e){ toast(e?.message || "Não consegui ativar", 4500); }
+    renderCasal();
   };
   app.querySelectorAll("[data-renew]").forEach(b => b.onclick = async () => {
     const last = c.entries.find(x => x.id === b.dataset.renew); if(!last) return;
@@ -1898,10 +1899,29 @@ function openCfg(){
   $("#cfgKey").value = localStorage.getItem("racha.apiKey") || "";
   $("#cfgModel").value = localStorage.getItem("racha.ocrModel") || "claude-haiku-4-5-20251001";
   $("#cfgOcrUrl").value = localStorage.getItem("racha.ocrUrl") || "";
+  paintPushCfg();
   $("#cfgDlg").showModal();
+}
+async function paintPushCfg(){
+  const b = $("#cfgPush"), t = $("#cfgPushTxt");
+  const st = ME && db.hasConfig() ? await pushStatus() : "nologin";
+  b.hidden = st === "nologin" || st === "unsupported" || st === "denied";
+  b.textContent = st === "on" ? "Desligar notificações neste aparelho" : "Ligar notificações";
+  b.dataset.st = st;
+  t.textContent = st === "unsupported" ? "Este aparelho não suporta notificação. No iPhone, instale o app na Tela de Início (Compartilhar → Adicionar à Tela de Início)."
+    : st === "denied" ? "O navegador bloqueou as notificações. Libere nas configurações do site e volte aqui."
+    : st === "nologin" ? "Entre na sua conta (aba Casal ou Grupos) pra receber avisos."
+    : st === "on" ? "Ligadas: você é avisado quando alguém lança uma despesa ou um acerto. Vale só para este aparelho."
+    : "Aviso no celular quando alguém lança uma despesa ou um acerto. Vale só para este aparelho.";
 }
 function wireConfig(){
   $("#cfgClose").onclick = () => $("#cfgDlg").close();
+  $("#cfgPush").onclick = async () => {
+    const on = $("#cfgPush").dataset.st === "on";
+    try{ if(on){ await disablePush(); toast("Notificações desligadas"); } else { await enablePush(); toast("Notificações ligadas ✓"); } }
+    catch(e){ console.error(e); toast(e?.message || "Não consegui mudar as notificações", 5000); }
+    paintPushCfg();
+  };
   $("#cfgSave").onclick = async (ev) => {
     ev.preventDefault();
     const url = $("#cfgUrl").value.trim(), anon = $("#cfgAnon").value.trim();

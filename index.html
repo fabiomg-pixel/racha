@@ -221,6 +221,10 @@
     <label class="fld" style="margin-top:8px"><span>URL da função de OCR</span><input id="cfgOcrUrl" placeholder="https://….supabase.co/functions/v1/ocr"></label>
   </details>
   <hr style="border:0;border-top:1px solid var(--line);margin:16px 0">
+  <h3>Notificações</h3>
+  <p class="sm mut" style="margin-top:0" id="cfgPushTxt">Aviso no celular quando alguém lança uma despesa ou um acerto. Vale só para este aparelho.</p>
+  <button class="btn sec sm" id="cfgPush" type="button" hidden></button>
+  <hr style="border:0;border-top:1px solid var(--line);margin:16px 0">
   <h3>Grupos (livro-razão) — opcional</h3>
   <p class="sm mut" style="margin-top:0">Pra usar a aba <b>Grupos</b> e guardar quem deve quem. Crie um projeto grátis em supabase.com, rode <code>supabase/migrations/0001_init.sql</code> e cole abaixo (Project Settings → API). A chave anon é pública por design — o RLS protege os dados.</p>
   <label class="fld"><span>Supabase Project URL</span><input id="cfgUrl" placeholder="https://xxxx.supabase.co"></label>

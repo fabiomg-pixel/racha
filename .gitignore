@@ -10,3 +10,6 @@ supabase/.temp
 *.log
 .env
 .env.*
+
+# Segredos locais (chaves VAPID)
+supabase/SEGREDOS.local.txt
