@@ -36,8 +36,13 @@ export function countUntil(start, freq, until, max = 120){ let n = 0; while(n < 
 
 // a ligação da série viaja no campo `place` da despesa (livre no casal), pra não exigir migração no banco
 export const encodeSeries = s => (s ? ["série", s.id, s.n, s.of || 0, s.kind, s.freq, s.start || ""].join("|") : null);
+// no Grupo o "Lugar" é do usuário: o texto vem antes, a marca da série depois de "§"
+export const encodePlace = (text, series) => (series ? (text ? text + "§" : "") + encodeSeries(series) : (text || null));
+export const placeText = place => String(place || "").replace(/(^|§)série\|[^§]*$/, "").trim();
 export function parseSeries(place){
-  const p = String(place || "").split("|");
+  const str = String(place || ""), at = str.search(/(^|§)série\|/);
+  if(at < 0) return null;
+  const p = str.slice(str[at] === "§" ? at + 1 : at).split("|");
   if(p[0] !== "série" || !p[1]) return null;
   return { id: p[1], n: Number(p[2]) || 1, of: Number(p[3]) || 0, kind: p[4] === "parcel" ? "parcel" : "repeat", freq: p[5] || "month", start: p[6] || "" };   // of = 0 → sem fim definido
 }
@@ -269,7 +274,7 @@ export function toRpcPayload(groupId, entry, memberMap = {}){
     description: entry.description,
     category: entry.category,
     note: entry.note,
-    place: encodeSeries(entry.series),
+    place: encodePlace(entry.placeText, entry.series),
     spent_at: entry.spentAt,
     subtotal, service_rate: rate, service_amount: round2(subtotal * rate),
     couvert: items.length ? round2(entry.opts?.couvert) : 0,
@@ -303,7 +308,7 @@ export function ledgerFromCloud({ group, members = [], expenses = [], settlement
       id: e.id, type: "expense", description: e.description || "Despesa", category: e.category || null, note: e.note || null,
       spentAt: e.spent_at, createdAt: e.created_at, createdBy: e.created_by || null, method: items.length ? "item" : even ? "equal" : "exact",
       total: round2(e.total), participants: shares.map(x => x.id), shares, payers,
-      ...(parseSeries(e.place) ? { series: parseSeries(e.place) } : {}),
+      ...(parseSeries(e.place) ? { series: parseSeries(e.place) } : {}), ...(placeText(e.place) ? { placeText: placeText(e.place) } : {}),
       ...(items.length ? { items, opts: { serviceRate: Number(e.service_rate) || 0, couvert: Number(e.couvert) || 0, discount: Number(e.discount) || 0 } } : {}),
     };
   });

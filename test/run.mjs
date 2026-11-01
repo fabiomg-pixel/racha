@@ -7,7 +7,7 @@ import { parseBill } from "../js/parse.js";
 import { parseMoney } from "../js/money.js";
 import { urlB64ToUint8, VAPID_PUBLIC } from "../js/push.js";
 import { normalizeSupabaseUrl, normalizeEmail } from "../js/db.js";
-import { createCouple, buildExpense, entryNet, ledgerBalances, coupleSummary, createStore, toRpcPayload, ledgerFromCloud, addMonths, seriesDates, countUntil, expandSeries, dueEntries, parseSeries, encodeSeries } from "../js/model.js";
+import { createCouple, buildExpense, entryNet, ledgerBalances, coupleSummary, createStore, toRpcPayload, ledgerFromCloud, addMonths, seriesDates, countUntil, expandSeries, dueEntries, parseSeries, encodeSeries, encodePlace, placeText } from "../js/model.js";
 
 let pass = 0;
 const ok = (name, fn) => { fn(); pass++; console.log("  ok —", name); };
@@ -344,6 +344,14 @@ ok("normalizeEmail: ponto e +tag no Gmail não criam outra conta", () => {
   assert.equal(normalizeEmail("f.a.b@googlemail.com"), "fab@gmail.com");
   assert.equal(normalizeEmail("Fabio.Gomes@biof.ufrj.br"), "fabio.gomes@biof.ufrj.br");   // fora do Gmail o ponto conta
   assert.equal(normalizeEmail("sem-arroba"), "sem-arroba");
+});
+
+ok("Grupo: o Lugar do usuário convive com a marca da série", () => {
+  const sr = { id: "s1", n: 2, of: 5, kind: "parcel", freq: "month", start: "2026-10-10" };
+  const pl = encodePlace("Bar do Zé", sr);
+  assert.equal(placeText(pl), "Bar do Zé"); assert.deepEqual(parseSeries(pl), sr);
+  assert.equal(placeText(encodePlace("", sr)), ""); assert.deepEqual(parseSeries(encodePlace("", sr)), sr);
+  assert.equal(encodePlace("Bar do Zé", null), "Bar do Zé"); assert.equal(placeText("Bar do Zé"), "Bar do Zé"); assert.equal(parseSeries("Bar do Zé"), null);
 });
 
 console.log(`\n${pass} testes passaram ✓`);

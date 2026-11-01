@@ -45,7 +45,7 @@ git add -A && git commit -m "ajuste"
 git push        # GitHub Pages republica sozinho em ~1 min
 ```
 
-> Ao mexer no app, **suba o número do cache** em `sw.js` (`racha-v2` → `racha-v3`...) pra forçar a atualização nos aparelhos já instalados.
+> Ao mexer no app, **suba o número do cache** em `sw.js` (`racha-v2` → `racha-v3`...) pra forçar a atualização nos aparelhos já instalados. Suba também `APP_VERSION` em `js/app.js`: é o número que aparece ao lado do logo.
 
 ## OCR por foto — duas formas
 
