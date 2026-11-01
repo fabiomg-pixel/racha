@@ -3,14 +3,39 @@
 const DEFAULT_MODEL = "claude-haiku-4-5-20251001";
 
 export const OCR_PROMPT = `Você recebe a FOTO de uma conta/cupom de restaurante ou bar no Brasil.
-Extraia os dados e responda APENAS com JSON válido, sem texto extra, neste formato:
-{"items":[{"name":"nome do item","qty":1,"unitPrice":0.00}],"subtotal":0.00,"service":{"rate":10,"amount":0.00},"total":0.00}
+Extraia os dados exatamente como impressos.
 Regras:
-- items: cada item de consumo. unitPrice é o preço UNITÁRIO em reais (número, ponto decimal); se a linha mostra só o total da linha, divida pelo qty. qty é inteiro (1 se não houver). NÃO inclua linhas de total, subtotal, serviço, couvert, CNPJ ou impostos como itens. Não invente itens ilegíveis. Cuidado para NÃO repetir o mesmo item duas vezes.
+- items: cada item de consumo. qty é inteiro (1 se não houver). lineTotal é o valor da linha em reais, como impresso; unitPrice é o preço unitário SÓ se estiver impresso, senão null (o app calcula lineTotal ÷ qty). NÃO inclua linhas de total, subtotal, serviço, couvert, CNPJ ou impostos como itens. Não invente itens ilegíveis. Cuidado para NÃO repetir o mesmo item duas vezes.
 - subtotal: a soma do consumo ANTES da taxa de serviço, exatamente como impressa; se não houver, use null.
 - service: a taxa de serviço/gorjeta SE existir na conta — "rate" é o percentual (ex.: 10) e "amount" o valor em reais; se a conta não cobra serviço, use null.
 - total: o total final impresso na conta; se não houver, use null.
 - Use null quando o campo não estiver visível. Não calcule nada que não esteja impresso.`;
+
+// Formato garantido pela API (structured outputs) — dispensa "responda só JSON" e o regex de extração.
+const money = { anyOf: [{ type: "number" }, { type: "null" }] };
+export const OCR_SCHEMA = {
+  type: "object", additionalProperties: false,
+  required: ["items", "subtotal", "service", "total"],
+  properties: {
+    items: { type: "array", items: { type: "object", additionalProperties: false,
+      required: ["name", "qty", "lineTotal", "unitPrice"],
+      properties: { name: { type: "string" }, qty: { type: "integer" }, lineTotal: money, unitPrice: money } } },
+    subtotal: money,
+    service: { anyOf: [ { type: "null" }, { type: "object", additionalProperties: false,
+      required: ["rate", "amount"], properties: { rate: money, amount: money } } ] },
+    total: money,
+  },
+};
+
+// preço unitário: o impresso, senão total da linha ÷ qty (aritmética no código, não no modelo)
+export function normalizeOCR(p){
+  const items = (p.items || []).map(it => {
+    const qty = it.qty > 0 ? it.qty : 1;
+    const unitPrice = it.unitPrice ?? (it.lineTotal != null ? Math.round(it.lineTotal / qty * 100) / 100 : 0);
+    return { name: it.name, qty, unitPrice };
+  });
+  return { items, subtotal: p.subtotal ?? null, service: p.service ?? null, total: p.total ?? null };
+}
 
 export function ocrConfigured(){
   return !!(localStorage.getItem("racha.ocrUrl") || localStorage.getItem("racha.apiKey"));
@@ -65,19 +90,21 @@ async function directOCR(image, media, key){
         "anthropic-dangerous-direct-browser-access": "true",
         "content-type": "application/json",
       },
-      body: JSON.stringify({ model, max_tokens: 2000, messages: [{ role: "user", content: [
-        { type: "image", source: { type: "base64", media_type: media, data: image } },
-        { type: "text", text: OCR_PROMPT },
-      ] }] }),
+      body: JSON.stringify({ model, max_tokens: 2000,
+        output_config: { format: { type: "json_schema", schema: OCR_SCHEMA } },
+        messages: [{ role: "user", content: [
+          { type: "image", source: { type: "base64", media_type: media, data: image } },
+          { type: "text", text: OCR_PROMPT },
+        ] }] }),
     });
   }catch(err){ throw new Error("rede: " + (err?.message || err)); }
   if(!res.ok){ let d = ""; try{ d = (await res.json())?.error?.message || ""; }catch(_){}
     throw new Error("HTTP " + res.status + (d ? ": " + d : "")); }
   const j = await res.json();
-  const text = (j.content?.[0]?.text || "").trim();
-  const m = text.match(/\{[\s\S]*\}/);
-  if(!m) throw new Error("vazio");
-  return JSON.parse(m[0]);
+  if(j.stop_reason !== "end_turn") throw new Error("resposta incompleta: " + j.stop_reason);
+  const text = j.content?.find(b => b.type === "text")?.text;
+  if(!text) throw new Error("vazio");
+  return normalizeOCR(JSON.parse(text));
 }
 
 export function ocrError(e){

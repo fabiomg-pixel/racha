@@ -12,14 +12,29 @@ const cors = {
 };
 
 const PROMPT = `Você recebe a FOTO de uma conta/cupom de restaurante ou bar no Brasil.
-Extraia os dados e responda APENAS com JSON válido, sem texto extra, neste formato:
-{"items":[{"name":"nome do item","qty":1,"unitPrice":0.00}],"subtotal":0.00,"service":{"rate":10,"amount":0.00},"total":0.00}
+Extraia os dados exatamente como impressos.
 Regras:
-- items: cada item de consumo. unitPrice é o preço UNITÁRIO em reais (número, ponto decimal); se a linha mostra só o total da linha, divida pelo qty. qty é inteiro (1 se não houver). NÃO inclua linhas de total, subtotal, serviço, couvert, CNPJ ou impostos como itens. Não invente itens ilegíveis. Cuidado para NÃO repetir o mesmo item duas vezes.
+- items: cada item de consumo. qty é inteiro (1 se não houver). lineTotal é o valor da linha em reais, como impresso; unitPrice é o preço unitário SÓ se estiver impresso, senão null (o app calcula lineTotal ÷ qty). NÃO inclua linhas de total, subtotal, serviço, couvert, CNPJ ou impostos como itens. Não invente itens ilegíveis. Cuidado para NÃO repetir o mesmo item duas vezes.
 - subtotal: a soma do consumo ANTES da taxa de serviço, exatamente como impressa; se não houver, use null.
 - service: a taxa de serviço/gorjeta SE existir na conta — "rate" é o percentual (ex.: 10) e "amount" o valor em reais; se a conta não cobra serviço, use null.
 - total: o total final impresso na conta; se não houver, use null.
 - Use null quando o campo não estiver visível. Não calcule nada que não esteja impresso.`;
+
+// Mesmo schema/normalização de js/ocr.js (manter os dois em sincronia).
+const money = { anyOf: [{ type: "number" }, { type: "null" }] };
+const OCR_SCHEMA = {
+  type: "object", additionalProperties: false,
+  required: ["items", "subtotal", "service", "total"],
+  properties: {
+    items: { type: "array", items: { type: "object", additionalProperties: false,
+      required: ["name", "qty", "lineTotal", "unitPrice"],
+      properties: { name: { type: "string" }, qty: { type: "integer" }, lineTotal: money, unitPrice: money } } },
+    subtotal: money,
+    service: { anyOf: [ { type: "null" }, { type: "object", additionalProperties: false,
+      required: ["rate", "amount"], properties: { rate: money, amount: money } } ] },
+    total: money,
+  },
+};
 
 Deno.serve(async (req) => {
   if (req.method === "OPTIONS") return new Response("ok", { headers: cors });
@@ -40,6 +55,7 @@ Deno.serve(async (req) => {
       body: JSON.stringify({
         model: MODEL,
         max_tokens: 2000,
+        output_config: { format: { type: "json_schema", schema: OCR_SCHEMA } },
         messages: [{
           role: "user",
           content: [
@@ -52,11 +68,18 @@ Deno.serve(async (req) => {
 
     if (!r.ok) return json({ error: "anthropic " + r.status, detail: await r.text() }, 502);
     const data = await r.json();
-    const text = (data.content?.[0]?.text ?? "").trim();
-    const m = text.match(/\{[\s\S]*\}/);            // tira cercas de código se vierem
-    const parsed = m ? JSON.parse(m[0]) : { items: [] };
+    if (data.stop_reason !== "end_turn") return json({ error: "resposta incompleta: " + data.stop_reason }, 502);
+    const text = data.content?.find((b: { type: string }) => b.type === "text")?.text;
+    if (!text) return json({ error: "vazio" }, 502);
+    const parsed = JSON.parse(text);
+    // preço unitário: o impresso, senão total da linha ÷ qty (aritmética no código, não no modelo)
+    const items = (parsed.items ?? []).map((it: { name: string; qty: number; lineTotal: number | null; unitPrice: number | null }) => {
+      const qty = it.qty > 0 ? it.qty : 1;
+      const unitPrice = it.unitPrice ?? (it.lineTotal != null ? Math.round(it.lineTotal / qty * 100) / 100 : 0);
+      return { name: it.name, qty, unitPrice };
+    });
     return json({
-      items: parsed.items ?? [],
+      items,
       subtotal: parsed.subtotal ?? null,
       service: parsed.service ?? null,
       total: parsed.total ?? null,
