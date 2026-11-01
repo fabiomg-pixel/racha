@@ -354,4 +354,12 @@ ok("Grupo: o Lugar do usuário convive com a marca da série", () => {
   assert.equal(encodePlace("Bar do Zé", null), "Bar do Zé"); assert.equal(placeText("Bar do Zé"), "Bar do Zé"); assert.equal(parseSeries("Bar do Zé"), null);
 });
 
+ok("acerto feito à noite no Brasil fica com a data de hoje, não a de amanhã (UTC)", () => {
+  const late = new Date(2026, 9, 31, 23, 30).toISOString();          // 23h30 local → já é 1º de novembro em UTC
+  const cloud = ledgerFromCloud({ group: GROUP, members: MEMBERS, myUserId: "uF", expenses: [],
+    settlements: [{ id: "s9", from_member: "mA", to_member: "mF", amount: 10, settled_at: late }] });
+  assert.equal(cloud.entries[0].spentAt, "2026-10-31");
+  assert.equal(dueEntries(cloud.entries, "2026-10-31").length, 1);   // entra no saldo hoje
+});
+
 console.log(`\n${pass} testes passaram ✓`);

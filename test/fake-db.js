@@ -54,7 +54,7 @@ export const subscribeGroup = (gid, fn) => { S.listeners.push(fn); return { fn }
 export const unsubscribe = ch => { S.listeners = S.listeners.filter(f => f !== ch?.fn); };
 export const balances = async () => [];
 export const listSettlements = async gid => S.settlements.filter(x => x.group_id === gid);
-export const addSettlement = async ({ groupId, from, to, amount, settledAt }) => { const x = { id: id("s"), group_id: groupId, from_member: from, to_member: to, amount, settled_at: settledAt || now(), created_by: S.user.id }; log("addSettlement", x); S.settlements.push(x); ping(); return x; };
+export const addSettlement = async ({ groupId, from, to, amount, settledAt }) => { const x = { id: id("s"), group_id: groupId, from_member: from, to_member: to, amount, settled_at: settledAt || new Date().toISOString(), created_by: S.user.id }; log("addSettlement", x); S.settlements.push(x); ping(); return x; };
 export const deleteSettlement = async sid => { log("deleteSettlement", sid); S.settlements = S.settlements.filter(x => x.id !== sid); ping(); };
 export const memberPix = async uid => S.profiles[uid] || null;
 export const sb = () => ({ from: () => ({ upsert: async () => ({}), delete: () => ({ eq: async () => ({}) }) }) });

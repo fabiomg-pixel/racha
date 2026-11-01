@@ -1091,32 +1091,55 @@ function coupleEntryDialog(entryId){
 function coupleSettleDialog(){
   const c = getCouple(), me = meOf(c), other = otherOf(c), you = esc(firstName(other.name));
   const t = coupleSummary(dueLedger(c)); if(!t){ toast("Vocês estão quites ✓"); return; }   // acerta só o que já venceu
-  const iPay = t.from === me.id, receiver = iPay ? other : me;
-  let payload = "";
-  if(receiver.pix?.key){ try{ payload = buildPixPayload({ key: receiver.pix.key, name: receiver.pix.name || receiver.name, city: "BRASIL", amount: t.amount, description: "Racha" }); }catch(_){ payload = ""; } }
-  const pixBlock = payload
-    ? `<p class="sm mut" style="margin:0 0 4px">Pix de <b>${esc(receiver.name)}</b></p><div class="qr" id="stQr"></div><div class="pix-box">${esc(payload)}</div><button class="btn sec block" id="stCopy" style="margin-top:10px">Copiar código Pix</button>`
-    : `<div class="banner warn" style="margin:0">${iPay ? you + " não tem" : "Você não tem"} chave Pix cadastrada — dá pra cadastrar tocando no nome do casal. Ou acertem por fora e marquem como pago.</div>`;
-  const nudge = `Oi! Nosso racha fechou em *${brl(t.amount)}* pra você me acertar 🙂` + (me.pix?.key ? `\nMeu Pix: ${me.pix.key}` : "");
+  const iPay = t.from === me.id, receiver = iPay ? other : me, debt = round2(t.amount);
+  const nudge = `Oi! Nosso racha fechou em *${brl(debt)}* pra você me acertar 🙂` + (me.pix?.key ? `\nMeu Pix: ${me.pix.key}` : "");
   const dlg = document.createElement("dialog"); document.body.appendChild(dlg);
   dlg.innerHTML = `<div class="dlg-bd">
-    <div class="sm mut" style="font-weight:600">${iPay ? `Você paga ${you}` : `${you} te paga`}</div>
-    <div class="settle-amount num">${brlNB(t.amount)}</div>
-    ${pixBlock}
+    <div class="sm mut" style="font-weight:600">${iPay ? `Você deve a ${you}` : `${you} te deve`} <span class="num">${brlNB(debt)}</span></div>
+    <label class="tile" style="margin:10px 0 6px"><span>${iPay ? "Vou pagar" : "Recebi"}</span><input id="stAmt" type="text" inputmode="decimal" value="${money2(debt)}" style="text-align:right;font-size:22px;font-weight:800" aria-label="valor do pagamento"></label>
+    <div class="sm" id="stRest" style="min-height:1.4em;font-weight:600"></div>
+    <div id="stPix" style="margin-top:8px"></div>
     ${!iPay ? `<a class="btn sec block" style="margin-top:10px" target="_blank" href="https://wa.me/?text=${encodeURIComponent(nudge)}">Cobrar no WhatsApp</a>` : ""}
+    <div class="banner warn" id="stErr" style="margin:12px 0 0" hidden></div>
     <div class="row" style="margin-top:16px"><button class="btn grow" id="stDone">Marcar como pago</button><button class="btn sec" id="stClose">Fechar</button></div>
   </div>`;
   dlg.showModal();
-  if(payload){
-    try{ const qr = qrcode(0, "M"); qr.addData(payload); qr.make(); dlg.querySelector("#stQr").innerHTML = qr.createSvgTag({ cellSize: 4, margin: 1 }); }catch(_){ dlg.querySelector("#stQr")?.remove(); }
-    dlg.querySelector("#stCopy").onclick = () => copy(payload);
-  }
+  const $d = q => dlg.querySelector(q);
+  // o erro aparece DENTRO da janela: um toast ficaria escondido atrás dela
+  const fail = msg => { $d("#stErr").textContent = msg; $d("#stErr").hidden = false; };
+  let amt = debt;
+  const paint = () => {
+    amt = round2(parseMoney($d("#stAmt").value));
+    $d("#stErr").hidden = true;
+    const ok = amt > 0 && amt <= debt + 0.004;
+    $d("#stDone").disabled = !ok;
+    $d("#stDone").textContent = ok && amt < debt - 0.004 ? `Marcar ${brlNB(amt)} como pago` : "Marcar como pago";
+    $d("#stRest").innerHTML = !(amt > 0) ? `<span class="mut">Digite quanto está sendo pago.</span>`
+      : amt > debt + 0.004 ? `<span style="color:var(--warn)">É mais do que a dívida (${brlNB(debt)}).</span>`
+      : amt < debt - 0.004 ? `<span class="mut">Pagamento parcial: ficam faltando ${brlNB(round2(debt - amt))}.</span>`
+      : `<span class="mut">Quita a dívida toda.</span>`;
+    let payload = "";
+    if(ok && receiver.pix?.key){ try{ payload = buildPixPayload({ key: receiver.pix.key, name: receiver.pix.name || receiver.name, city: "BRASIL", amount: amt, description: "Racha" }); }catch(_){ payload = ""; } }
+    $d("#stPix").innerHTML = payload
+      ? `<p class="sm mut" style="margin:0 0 4px">Pix de <b>${esc(receiver.name)}</b> · ${brlNB(amt)}</p><div class="qr" id="stQr"></div><div class="pix-box">${esc(payload)}</div><button class="btn sec block" id="stCopy" style="margin-top:10px">Copiar código Pix</button>`
+      : receiver.pix?.key ? "" : `<div class="banner warn" style="margin:0">${iPay ? you + " não tem" : "Você não tem"} chave Pix cadastrada — ${iPay ? "ela pode cadastrar" : "dá pra cadastrar"} tocando no nome do casal. Ou acertem por fora e marquem como pago.</div>`;
+    if(payload){
+      try{ const qr = qrcode(0, "M"); qr.addData(payload); qr.make(); $d("#stQr").innerHTML = qr.createSvgTag({ cellSize: 4, margin: 1 }); }catch(_){ $d("#stQr")?.remove(); }
+      $d("#stCopy").onclick = () => copy(payload);
+    }
+  };
+  $d("#stAmt").oninput = paint;
+  paint();
   const close = () => { dlg.close(); dlg.remove(); };
-  dlg.querySelector("#stClose").onclick = close;
-  dlg.querySelector("#stDone").onclick = async () => {
-    dlg.querySelector("#stDone").disabled = true;
-    try{ await db.addSettlement({ groupId: c.id, from: t.from, to: t.to, amount: t.amount }); close(); await afterCoupleWrite("Acerto registrado ✓"); }
-    catch(err){ console.error(err); toast(err?.message || "Não consegui registrar", 5000); dlg.querySelector("#stDone").disabled = false; }
+  $d("#stClose").onclick = close;
+  $d("#stDone").onclick = async () => {
+    if(!(amt > 0) || amt > debt + 0.004) return;
+    const btn = $d("#stDone"); btn.disabled = true; btn.textContent = "Registrando…";
+    try{
+      await db.addSettlement({ groupId: c.id, from: t.from, to: t.to, amount: amt });
+      close();
+      await afterCoupleWrite(amt < debt - 0.004 ? `Pagamento de ${brlNB(amt)} registrado ✓` : "Acerto registrado ✓");
+    }catch(err){ console.error(err); paint(); fail("Não consegui registrar: " + (err?.message || "confira a internet") + "."); }   // paint() limpa o erro, então vem antes
   };
 }
 
